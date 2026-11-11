@@ -1,0 +1,245 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Create package.json with dev dependencies and test scripts": [
+      {
+        "executionId": "31d91f7a-ca80-4a22-b9f6-a00a2c73d416",
+        "chatSessionId": "sess_969b098e-4196-4848-86b1-2f4790ddd7d3",
+        "timestamp": 1794434249872
+      },
+      {
+        "executionId": "31d91f7a-ca80-4a22-b9f6-a00a2c73d416",
+        "chatSessionId": "sess_969b098e-4196-4848-86b1-2f4790ddd7d3",
+        "timestamp": 1794434700770
+      }
+    ],
+    "1.2 Create test/setup.js with mocks and class loader": [
+      {
+        "executionId": "72b39cb4-9d5a-49d9-8385-fa8bf0f4a37b",
+        "chatSessionId": "sess_e29060db-7061-4017-99ee-a1b91d73084e",
+        "timestamp": 1794434735363
+      },
+      {
+        "executionId": "72b39cb4-9d5a-49d9-8385-fa8bf0f4a37b",
+        "chatSessionId": "sess_e29060db-7061-4017-99ee-a1b91d73084e",
+        "timestamp": 1794434933324
+      }
+    ],
+    "1. Set up project structure and test infrastructure": [
+      {
+        "executionId": "72b39cb4-9d5a-49d9-8385-fa8bf0f4a37b",
+        "chatSessionId": "sess_e29060db-7061-4017-99ee-a1b91d73084e",
+        "timestamp": 1794434933369
+      }
+    ],
+    "2.1 Create index.html with HTML structure, canvas element, responsive CSS, and CONFIG constants": [
+      {
+        "executionId": "1ce937c2-6f83-4b09-b456-47b663c76524",
+        "chatSessionId": "sess_99f24f9f-0c77-4d4d-bdd2-dc662774276b",
+        "timestamp": 1794434982074
+      },
+      {
+        "executionId": "1ce937c2-6f83-4b09-b456-47b663c76524",
+        "chatSessionId": "sess_99f24f9f-0c77-4d4d-bdd2-dc662774276b",
+        "timestamp": 1794435034103
+      }
+    ],
+    "2. Create HTML structure and configuration constants": [
+      {
+        "executionId": "1ce937c2-6f83-4b09-b456-47b663c76524",
+        "chatSessionId": "sess_99f24f9f-0c77-4d4d-bdd2-dc662774276b",
+        "timestamp": 1794435034149
+      }
+    ],
+    "3.1 Implement Ghost class inline in index.html": [
+      {
+        "executionId": "42edc220-d768-4bc1-b33e-262107eb16ad",
+        "chatSessionId": "sess_2457d7f5-c01e-48d5-b691-562c7a83ca1e",
+        "timestamp": 1794435059268
+      },
+      {
+        "executionId": "42edc220-d768-4bc1-b33e-262107eb16ad",
+        "chatSessionId": "sess_2457d7f5-c01e-48d5-b691-562c7a83ca1e",
+        "timestamp": 1794435102844
+      }
+    ],
+    "3. Implement Ghost module (player physics)": [
+      {
+        "executionId": "42edc220-d768-4bc1-b33e-262107eb16ad",
+        "chatSessionId": "sess_2457d7f5-c01e-48d5-b691-562c7a83ca1e",
+        "timestamp": 1794435102912
+      }
+    ],
+    "4.1 Implement PipeSystem class and PipePair model inline in index.html": [
+      {
+        "executionId": "5dc53d13-26bb-4f78-a99c-e269e9a0c8e0",
+        "chatSessionId": "sess_9eb498a5-755d-434b-bf04-9fd1d2eb2508",
+        "timestamp": 1794435178365
+      },
+      {
+        "executionId": "5dc53d13-26bb-4f78-a99c-e269e9a0c8e0",
+        "chatSessionId": "sess_9eb498a5-755d-434b-bf04-9fd1d2eb2508",
+        "timestamp": 1794435270953
+      }
+    ],
+    "4. Implement PipeSystem module (pipe generation and scrolling)": [
+      {
+        "executionId": "5dc53d13-26bb-4f78-a99c-e269e9a0c8e0",
+        "chatSessionId": "sess_9eb498a5-755d-434b-bf04-9fd1d2eb2508",
+        "timestamp": 1794435270996
+      }
+    ],
+    "5.1 Implement CollisionSystem class inline in index.html": [
+      {
+        "executionId": "19c2ddef-b361-42cd-a31f-837f793b863d",
+        "chatSessionId": "sess_cc2c840e-a2ed-4bb5-9d64-107b8f9160dc",
+        "timestamp": 1794435332410
+      },
+      {
+        "executionId": "19c2ddef-b361-42cd-a31f-837f793b863d",
+        "chatSessionId": "sess_cc2c840e-a2ed-4bb5-9d64-107b8f9160dc",
+        "timestamp": 1794435427900
+      }
+    ],
+    "5. Implement CollisionSystem module (AABB intersection)": [
+      {
+        "executionId": "19c2ddef-b361-42cd-a31f-837f793b863d",
+        "chatSessionId": "sess_cc2c840e-a2ed-4bb5-9d64-107b8f9160dc",
+        "timestamp": 1794435427964
+      }
+    ],
+    "6.1 Implement ScoreSystem class inline in index.html": [
+      {
+        "executionId": "47a957a4-f53b-4d11-b1ac-60319cf79cf3",
+        "chatSessionId": "sess_efb159f2-cf43-4800-b5c4-dc3450cefc39",
+        "timestamp": 1794435484999
+      },
+      {
+        "executionId": "47a957a4-f53b-4d11-b1ac-60319cf79cf3",
+        "chatSessionId": "sess_efb159f2-cf43-4800-b5c4-dc3450cefc39",
+        "timestamp": 1794435549168
+      }
+    ],
+    "6. Implement ScoreSystem module (scoring and localStorage)": [
+      {
+        "executionId": "47a957a4-f53b-4d11-b1ac-60319cf79cf3",
+        "chatSessionId": "sess_efb159f2-cf43-4800-b5c4-dc3450cefc39",
+        "timestamp": 1794435549197
+      }
+    ],
+    "7.1 Implement AudioSystem class inline in index.html": [
+      {
+        "executionId": "315ad2d9-87c8-44d4-9a75-c261433ef2c0",
+        "chatSessionId": "sess_3c3b5ca9-7ca5-4817-a07d-9ff41ae608f2",
+        "timestamp": 1794435567442
+      },
+      {
+        "executionId": "315ad2d9-87c8-44d4-9a75-c261433ef2c0",
+        "chatSessionId": "sess_3c3b5ca9-7ca5-4817-a07d-9ff41ae608f2",
+        "timestamp": 1794435621242
+      }
+    ],
+    "7. Implement AudioSystem module (sound playback)": [
+      {
+        "executionId": "315ad2d9-87c8-44d4-9a75-c261433ef2c0",
+        "chatSessionId": "sess_3c3b5ca9-7ca5-4817-a07d-9ff41ae608f2",
+        "timestamp": 1794435621285
+      }
+    ],
+    "8.1 Implement Renderer class inline in index.html": [
+      {
+        "executionId": "bcd92a10-b3d2-4d6e-bf99-e7bfcc42d919",
+        "chatSessionId": "sess_7424b7e1-00e5-44a3-9dca-fc7a7a28ee89",
+        "timestamp": 1794435640317
+      },
+      {
+        "executionId": "bcd92a10-b3d2-4d6e-bf99-e7bfcc42d919",
+        "chatSessionId": "sess_7424b7e1-00e5-44a3-9dca-fc7a7a28ee89",
+        "timestamp": 1794435731023
+      }
+    ],
+    "8. Implement Renderer module (canvas drawing)": [
+      {
+        "executionId": "bcd92a10-b3d2-4d6e-bf99-e7bfcc42d919",
+        "chatSessionId": "sess_7424b7e1-00e5-44a3-9dca-fc7a7a28ee89",
+        "timestamp": 1794435731048
+      }
+    ],
+    "10.1 Implement GameEngine class inline in index.html": [
+      {
+        "executionId": "8767849c-bebf-42fe-8512-ecf4d7ddec7c",
+        "chatSessionId": "sess_ced7654e-5486-40d1-99de-3c6998dccfea",
+        "timestamp": 1794435775278
+      },
+      {
+        "executionId": "8767849c-bebf-42fe-8512-ecf4d7ddec7c",
+        "chatSessionId": "sess_ced7654e-5486-40d1-99de-3c6998dccfea",
+        "timestamp": 1794435862403
+      }
+    ],
+    "10. Implement GameEngine module (game loop and state machine)": [
+      {
+        "executionId": "8767849c-bebf-42fe-8512-ecf4d7ddec7c",
+        "chatSessionId": "sess_ced7654e-5486-40d1-99de-3c6998dccfea",
+        "timestamp": 1794435862443
+      }
+    ],
+    "11.1 Implement asset loading with error handling and GameEngine start inline in index.html": [
+      {
+        "executionId": "0f2e0489-65c4-4f23-8336-ece4b37b08e2",
+        "chatSessionId": "sess_da4a1145-a11a-47ba-8278-8399f4ba877e",
+        "timestamp": 1794435916185
+      },
+      {
+        "executionId": "0f2e0489-65c4-4f23-8336-ece4b37b08e2",
+        "chatSessionId": "sess_da4a1145-a11a-47ba-8278-8399f4ba877e",
+        "timestamp": 1794435968470
+      }
+    ],
+    "11. Implement asset loading and initialization": [
+      {
+        "executionId": "0f2e0489-65c4-4f23-8336-ece4b37b08e2",
+        "chatSessionId": "sess_da4a1145-a11a-47ba-8278-8399f4ba877e",
+        "timestamp": 1794435968516
+      }
+    ],
+    "12.1 Implement canvas resize handler inline in index.html": [
+      {
+        "executionId": "a67a349f-fc17-40a9-8b2d-fc909545b670",
+        "chatSessionId": "sess_73353cc8-0d18-4c39-914d-24fc47fca508",
+        "timestamp": 1794435999311
+      },
+      {
+        "executionId": "a67a349f-fc17-40a9-8b2d-fc909545b670",
+        "chatSessionId": "sess_73353cc8-0d18-4c39-914d-24fc47fca508",
+        "timestamp": 1794436053708
+      }
+    ],
+    "12. Implement responsive canvas scaling": [
+      {
+        "executionId": "a67a349f-fc17-40a9-8b2d-fc909545b670",
+        "chatSessionId": "sess_73353cc8-0d18-4c39-914d-24fc47fca508",
+        "timestamp": 1794436053776
+      }
+    ],
+    "14.1 Wire all modules together in the game loop for end-to-end gameplay": [
+      {
+        "executionId": "00a65813-045e-4c15-8ee9-f700a125a63b",
+        "chatSessionId": "sess_f77c2ec9-d9cd-40db-a611-d7ce691e0af5",
+        "timestamp": 1794436083154
+      },
+      {
+        "executionId": "00a65813-045e-4c15-8ee9-f700a125a63b",
+        "chatSessionId": "sess_f77c2ec9-d9cd-40db-a611-d7ce691e0af5",
+        "timestamp": 1794436455084
+      }
+    ],
+    "14. Integration and wiring": [
+      {
+        "executionId": "00a65813-045e-4c15-8ee9-f700a125a63b",
+        "chatSessionId": "sess_f77c2ec9-d9cd-40db-a611-d7ce691e0af5",
+        "timestamp": 1794436455151
+      }
+    ]
+  }
+}

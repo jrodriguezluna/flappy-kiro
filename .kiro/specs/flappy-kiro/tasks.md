@@ -8,29 +8,29 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
 
 ## Tasks
 
-- [ ] 1. Set up project structure and test infrastructure
-  - [ ] 1.1 Create package.json with dev dependencies and test scripts
+- [x] 1. Set up project structure and test infrastructure
+  - [x] 1.1 Create package.json with dev dependencies and test scripts
     - Add `vitest` and `fast-check` as devDependencies
     - Add `"test": "vitest run --passWithNoTests"` script for single-execution test runs (the `--passWithNoTests` flag lets checkpoints pass when optional test tasks are skipped)
     - Configure Vitest to use jsdom environment (for DOM, Canvas, localStorage APIs)
     - _Requirements: 9.1_
-  - [ ] 1.2 Create test/setup.js with mocks and class loader
+  - [x] 1.2 Create test/setup.js with mocks and class loader
     - Mock `CanvasRenderingContext2D` methods (fillRect, drawImage, fillText, arc, beginPath, etc.) as no-op spies
     - Mock `localStorage` with getItem/setItem/removeItem backed by a plain object
     - Mock `HTMLAudioElement` with configurable `play()` that can succeed or throw
     - Create a helper function that reads `index.html`, extracts the inline `<script>` content, evaluates it in the test context (with mocks installed), and returns access to the global classes (Ghost, PipeSystem, CollisionSystem, ScoreSystem, AudioSystem, Renderer, GameEngine, CONFIG, GameState)
     - _Requirements: 5.5, 6.3_
 
-- [ ] 2. Create HTML structure and configuration constants
-  - [ ] 2.1 Create index.html with HTML structure, canvas element, responsive CSS, and CONFIG constants
+- [x] 2. Create HTML structure and configuration constants
+  - [x] 2.1 Create index.html with HTML structure, canvas element, responsive CSS, and CONFIG constants
     - Create HTML boilerplate with `<canvas id="gameCanvas" width="800" height="600">` and references to `assets/ghosty.png`, `assets/jump.wav`, `assets/game_over.wav`
     - Add CSS for responsive canvas scaling: canvas scales via CSS width/height to fit viewport while preserving 800:600 (4:3) aspect ratio, internal resolution stays 800x600
     - Define `CONFIG` object inline: canvas dimensions (800x600), ghost params (x=400, y=300, 40x40), physics (GRAVITY=900, JUMP_IMPULSE=-350, MAX_FALL_SPEED=700), pipe params (width=60, capWidth=68, capHeight=20, gapSize=150, gapMinY=75, gapMaxY=225, speed=120, spawnInterval=1.5), storage key "flappyKiroHighScore", cloud positions
     - Define `GameState` enum: START, PLAYING, GAME_OVER
     - _Requirements: 1.4, 2.1, 2.2, 3.2, 3.5, 5.4, 8.1, 9.3_
 
-- [ ] 3. Implement Ghost module (player physics)
-  - [ ] 3.1 Implement Ghost class inline in index.html
+- [x] 3. Implement Ghost module (player physics)
+  - [x] 3.1 Implement Ghost class inline in index.html
     - Constructor: initialize position (x=400, y=300), velocityY=0, width=40, height=40
     - `reset()`: return to initial position (400, 300) and zero velocity
     - `applyJump()`: set velocityY to CONFIG.PHYSICS.JUMP_IMPULSE (-350 px/s)
@@ -50,8 +50,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - **Validates: Requirements 2.3**
     - For any position y, velocity v, and dt, updated y' = y + v * dt
 
-- [ ] 4. Implement PipeSystem module (pipe generation and scrolling)
-  - [ ] 4.1 Implement PipeSystem class and PipePair model inline in index.html
+- [x] 4. Implement PipeSystem module (pipe generation and scrolling)
+  - [x] 4.1 Implement PipeSystem class and PipePair model inline in index.html
     - `PipePair` model: x (left edge), gapCenterY, gapSize (150), width (60), capWidth (68), capHeight (20), scored (boolean)
     - Constructor: store canvasWidth and canvasHeight, initialize spawnTimer=0 and empty pipes array
     - `update(dt)`: move all pipes left by `SPEED * dt`, remove pipes where `x + width < 0`, increment spawnTimer, spawn new pipe when `spawnTimer >= SPAWN_INTERVAL` (1.5s)
@@ -72,8 +72,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - **Validates: Requirements 3.5**
     - For any PipePair: body width=60, cap width=68 (wider than body), cap height=20
 
-- [ ] 5. Implement CollisionSystem module (AABB intersection)
-  - [ ] 5.1 Implement CollisionSystem class inline in index.html
+- [x] 5. Implement CollisionSystem module (AABB intersection)
+  - [x] 5.1 Implement CollisionSystem class inline in index.html
     - `static aabbIntersect(boxA, boxB)`: return true if boxes overlap on both x and y axes (separating-axis test)
     - `static checkGhostPipes(ghostBox, pipes)`: return true if ghost box intersects any pipe's box
     - `static checkBoundaries(ghostBox, canvas)`: return 'top' if `ghostBox.y <= 0`, return 'bottom' if `ghostBox.y + ghostBox.height >= canvasHeight`, return null otherwise
@@ -87,8 +87,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - **Validates: Requirements 4.1, 4.2**
     - Returns true iff ghost box overlaps at least one pipe box on both axes simultaneously
 
-- [ ] 6. Implement ScoreSystem module (scoring and localStorage)
-  - [ ] 6.1 Implement ScoreSystem class inline in index.html
+- [x] 6. Implement ScoreSystem module (scoring and localStorage)
+  - [x] 6.1 Implement ScoreSystem class inline in index.html
     - Constructor: call `loadHighScore()` to initialize highScore, set currentScore to 0
     - `reset()`: set currentScore to 0
     - `checkPipePassed(ghost, pipePair)`: if `ghost.x >= pipePair.x + pipePair.width / 2` and `!pipePair.scored`, mark scored and increment currentScore by 1, return true; otherwise return false
@@ -109,8 +109,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - **Validates: Requirements 5.5**
     - Loaded high score is parsed integer if valid non-negative, or 0 if missing/NaN/negative/non-numeric
 
-- [ ] 7. Implement AudioSystem module (sound playback)
-  - [ ] 7.1 Implement AudioSystem class inline in index.html
+- [x] 7. Implement AudioSystem module (sound playback)
+  - [x] 7.1 Implement AudioSystem class inline in index.html
     - Constructor: create `Audio` objects for jump and game over sounds from asset paths
     - `playJump()`: reset `currentTime = 0`, call `play()` in try/catch
     - `playGameOver()`: reset `currentTime = 0`, call `play()` in try/catch
@@ -121,8 +121,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - **Validates: Requirements 6.3**
     - If AudioSystem.play() throws, GameEngine catches error and continues; state, score, physics unaffected
 
-- [ ] 8. Implement Renderer module (canvas drawing)
-  - [ ] 8.1 Implement Renderer class inline in index.html
+- [x] 8. Implement Renderer module (canvas drawing)
+  - [x] 8.1 Implement Renderer class inline in index.html
     - Constructor: store ctx, canvasWidth, canvasHeight, ghostImage reference
     - `render(state, ghost, pipes, currentScore, highScore)`: call sub-draw methods in z-order: drawBackground → drawClouds → drawPipePair (each) → drawGhost → drawScoreBar; add state-specific overlays (drawStartScreen or drawGameOverScreen)
     - `drawBackground()`: fill entire canvas with blue color
@@ -145,8 +145,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
 - [ ] 9. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Implement GameEngine module (game loop and state machine)
-  - [ ] 10.1 Implement GameEngine class inline in index.html
+- [x] 10. Implement GameEngine module (game loop and state machine)
+  - [x] 10.1 Implement GameEngine class inline in index.html
     - Constructor: store canvas and ctx, create subsystem instances (Ghost, PipeSystem, CollisionSystem, ScoreSystem, AudioSystem, Renderer), set state to START, initialize lastTime for delta calculation
     - `start()`: attach event listeners (keydown for Space, click, touchstart), begin requestAnimationFrame loop
     - `handleInput()`: route based on state — START: transition to PLAYING + applyJump; PLAYING: applyJump + playJump sound; GAME_OVER: reset() + transition to PLAYING + applyJump
@@ -161,8 +161,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - **Validates: Requirements 7.4**
     - After restart from GAME_OVER: score is 0, pipe list is empty, ghost at (400, 300) with zero velocity, state is PLAYING
 
-- [ ] 11. Implement asset loading and initialization
-  - [ ] 11.1 Implement asset loading with error handling and GameEngine start inline in index.html
+- [x] 11. Implement asset loading and initialization
+  - [x] 11.1 Implement asset loading with error handling and GameEngine start inline in index.html
     - Load `assets/ghosty.png` as `Image`, `assets/jump.wav` and `assets/game_over.wav` as `Audio` objects
     - Track loading progress with a counter; only proceed when all three assets loaded (onload/oncanplaythrough)
     - If any asset fails (onerror): display error message on canvas ("Failed to load game assets. Please refresh the page."), halt initialization (no game loop starts)
@@ -174,8 +174,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - Test initial state is START on page load
     - _Requirements: 1.1, 1.2, 7.1_
 
-- [ ] 12. Implement responsive canvas scaling
-  - [ ] 12.1 Implement canvas resize handler inline in index.html
+- [x] 12. Implement responsive canvas scaling
+  - [x] 12.1 Implement canvas resize handler inline in index.html
     - Add `window.addEventListener('resize', ...)` listener
     - On resize: compute available viewport space, scale canvas CSS width/height to fit while preserving 800:600 (4:3) aspect ratio
     - Internal canvas resolution remains 800x600 (canvas.width/height attributes unchanged); only CSS dimensions change
@@ -189,8 +189,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
 - [ ] 13. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 14. Integration and wiring
-  - [ ] 14.1 Wire all modules together in the game loop for end-to-end gameplay
+- [x] 14. Integration and wiring
+  - [x] 14.1 Wire all modules together in the game loop for end-to-end gameplay
     - Connect input handlers (Spacebar keydown, mouse click, touchstart tap) to `GameEngine.handleInput()`
     - Verify state transitions: START → PLAYING (on input), PLAYING → GAME_OVER (on collision or boundary), GAME_OVER → PLAYING (on restart input)
     - Verify update loop integrates: Ghost physics, pipe scrolling, collision checks, score updates all run per frame during PLAYING

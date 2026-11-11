@@ -1,0 +1,16 @@
+{
+  "name": "flappy-kiro",
+  "version": "1.0.0",
+  "description": "Flappy Kiro - browser-based endless scroller game",
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "fast-check": "4.10.2",
+    "jsdom": "25.0.1",
+    "vitest": "5.1.0"
+  },
+  "vitest": {
+    "environment": "jsdom"
+  }
+}

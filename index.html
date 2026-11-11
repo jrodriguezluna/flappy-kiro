@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flappy Kiro</title>
+  <style>
+    /* -----------------------------------------------------------------------
+       Reset and full-viewport layout
+    ----------------------------------------------------------------------- */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    /* -----------------------------------------------------------------------
+       Responsive canvas scaling
+       The canvas element has a fixed internal resolution of 800×600.
+       CSS scales it to fill the available viewport while preserving the
+       4:3 aspect ratio. The internal width/height attributes are never
+       changed — only the CSS display size changes.
+    ----------------------------------------------------------------------- */
+    #gameCanvas {
+      display: block;
+      /* max-width / max-height keep the canvas within the viewport */
+      max-width: 100vw;
+      max-height: 100vh;
+      /* aspect-ratio locks 4:3 regardless of which dimension is limiting */
+      aspect-ratio: 800 / 600;
+      /* Let the browser handle the actual pixel size within those constraints */
+      width: auto;
+      height: auto;
+      image-rendering: pixelated; /* keep crisp pixel art on high-DPI displays */
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="gameCanvas" width="800" height="600">
+    Your browser does not support the HTML5 Canvas element.
+  </canvas>
+
+  <!--
+    Preload asset references so browsers can begin fetching early.
+    The actual Image / Audio objects are created in the inline script below.
+  -->
+  <link rel="preload" as="image" href="assets/ghosty.png" />
+  <link rel="preload" as="fetch" href="assets/jump.wav" crossorigin="anonymous" />
+  <link rel="preload" as="fetch" href="assets/game_over.wav" crossorigin="anonymous" />
+
+  <script>
+    /* ===================================================================
+       Flappy Kiro — inline game script
+       All JavaScript is contained here so the game runs via file:// protocol
+       without a server or build tool.
+
+       Module order (dependency-safe):
+         1. CONFIG constants
+         2. GameState enum
+         (Subsequent tasks will add: AudioSystem, ScoreSystem, Ghost,
+          PipeSystem, CollisionSystem, Renderer, GameEngine, asset loader)
+    =================================================================== */
+
+    // -----------------------------------------------------------------
+    // 1. Configuration constants
+    // -----------------------------------------------------------------
+    var CONFIG = {
+      CANVAS_WIDTH: 800,
+      CANVAS_HEIGHT: 600,
+
+      GHOST: {
+        X: 400,       // initial horizontal position (px) — horizontal center
+        Y: 300,       // initial vertical position (px)  — 50% canvas height
+        WIDTH: 40,    // bounding-box width (px)
+        HEIGHT: 40    // bounding-box height (px)
+      },
+
+      PHYSICS: {
+        GRAVITY: 900,       // downward acceleration (px/s²)
+        JUMP_IMPULSE: -350, // upward velocity applied on jump (px/s)
+        MAX_FALL_SPEED: 700 // terminal velocity — clamp downward speed (px/s)
+      },
+
+      PIPES: {
+        WIDTH: 60,          // pipe body width (px)
+        CAP_WIDTH: 68,      // pipe cap width (px) — wider than body
+        CAP_HEIGHT: 20,     // pipe cap height (px)
+        GAP_SIZE: 150,      // vertical gap between top and bottom pipe (px)
+        GAP_MIN_Y: 75,      // minimum gap center Y from top of canvas (px)
+        GAP_MAX_Y: 225,     // maximum gap center Y from top of canvas (px)
+        SPEED: 120,         // leftward scroll speed (px/s)
+        SPAWN_INTERVAL: 1.5 // time between new pipe pairs (seconds)
+      },
+
+      STORAGE_KEY: 'flappyKiroHighScore',
+
+      CLOUDS: [
+        { x: 100, y: 80,  size: 40 },
+        { x: 500, y: 120, size: 30 },
+        { x: 300, y: 200, size: 25 }
+      ]
+    };
+
+    // -----------------------------------------------------------------
+    // 2. Game state enum
+    // -----------------------------------------------------------------
+    var GameState = {
+      START:     'START',
+      PLAYING:   'PLAYING',
+      GAME_OVER: 'GAME_OVER'
+    };
+
+    // -----------------------------------------------------------------
+    // Expose to globalThis for test/setup.js (vm.runInThisContext shares
+    // the same global, but explicit assignment keeps linters happy and
+    // ensures future strict-mode wrapping doesn't break access).
+    // -----------------------------------------------------------------
+    globalThis.CONFIG    = CONFIG;
+    globalThis.GameState = GameState;
+
+    // -----------------------------------------------------------------
+    // 3. Ghost — player entity with physics
+    // -----------------------------------------------------------------
+    var Ghost = (function () {
+      function Ghost(x, y, width, height) {
+        // Store initial values so reset() can return to them
+        this._initX      = x      !== undefined ? x      : CONFIG.GHOST.X;
+        this._initY      = y      !== undefined ? y      : CONFIG.GHOST.Y;
+        this._initWidth  = width  !== undefined ? width  : CONFIG.GHOST.WIDTH;
+        this._initHeight = height !== undefined ? height : CONFIG.GHOST.HEIGHT;
+
+        this.x         = this._initX;
+        this.y         = this._initY;
+        this.width     = this._initWidth;
+        this.height    = this._initHeight;
+        this.velocityY = 0;
+      }
+
+      /** Return the ghost to its initial position with zero velocity. */
+      Ghost.prototype.reset = function () {
+        this.x         = this._initX;
+        this.y         = this._initY;
+        this.velocityY = 0;
+      };
+
+      /**
+       * Apply an upward velocity impulse.
+       * Sets velocityY to JUMP_IMPULSE regardless of the current velocity.
+       * Satisfies Property 1 (Requirements 2.1).
+       */
+      Ghost.prototype.applyJump = function () {
+        this.velocityY = CONFIG.PHYSICS.JUMP_IMPULSE;
+      };
+
+      /**
+       * Advance physics by one time step.
+       *   1. Apply gravity: velocityY += GRAVITY * dt   (Property 2 — Req 2.2)
+       *   2. Clamp to terminal velocity (MAX_FALL_SPEED)
+       *   3. Update position: y += velocityY * dt        (Property 3 — Req 2.3)
+       *
+       * @param {number} dt - Elapsed time in seconds since the last frame.
+       */
+      Ghost.prototype.update = function (dt) {
+        // 1. Gravity acceleration
+        this.velocityY += CONFIG.PHYSICS.GRAVITY * dt;
+
+        // 2. Clamp to terminal velocity (downward only)
+        if (this.velocityY > CONFIG.PHYSICS.MAX_FALL_SPEED) {
+          this.velocityY = CONFIG.PHYSICS.MAX_FALL_SPEED;
+        }
+
+        // 3. Integrate position
+        this.y += this.velocityY * dt;
+      };
+
+      /**
+       * Return the axis-aligned bounding box used for collision detection.
+       * @returns {{ x: number, y: number, width: number, height: number }}
+       */
+      Ghost.prototype.getBoundingBox = function () {
+        return {
+          x:      this.x,
+          y:      this.y,
+          width:  this.width,
+          height: this.height
+        };
+      };
+
+      return Ghost;
+    }());
+
+    // Expose for test access
+    globalThis.Ghost = Ghost;
+
+    // -----------------------------------------------------------------
+    // 4. PipePair model and PipeSystem — pipe generation and scrolling
+    // -----------------------------------------------------------------
+
+    /**
+     * PipePair — data model for a single top+bottom pipe obstacle.
+     *
+     * @param {number} x          - Left edge x-position (px).
+     * @param {number} gapCenterY - Vertical center of the gap (px from top).
+     */
+    var PipePair = (function () {
+      function PipePair(x, gapCenterY) {
+        this.x          = x;
+        this.gapCenterY = gapCenterY;
+        this.gapSize    = CONFIG.PIPES.GAP_SIZE;    // 150
+        this.width      = CONFIG.PIPES.WIDTH;        // 60
+        this.capWidth   = CONFIG.PIPES.CAP_WIDTH;    // 68
+        this.capHeight  = CONFIG.PIPES.CAP_HEIGHT;   // 20
+        this.scored     = false;
+      }
+      return PipePair;
+    }());
+
+    /**
+     * PipeSystem — manages the full lifecycle of pipe pairs:
+     * generation, scrolling, and removal.
+     *
+     * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+     */
+    var PipeSystem = (function () {
+      /**
+       * @param {number} canvasWidth  - Width of the canvas (px).
+       * @param {number} canvasHeight - Height of the canvas (px).
+       */
+      function PipeSystem(canvasWidth, canvasHeight) {
+        this._canvasWidth  = canvasWidth  !== undefined ? canvasWidth  : CONFIG.CANVAS_WIDTH;
+        this._canvasHeight = canvasHeight !== undefined ? canvasHeight : CONFIG.CANVAS_HEIGHT;
+        this._pipes       = [];
+        this._spawnTimer  = 0;
+      }
+
+      /**
+       * Advance the pipe system by one time step.
+       *   1. Move all pipes left by SPEED * dt            (Property 6 — Req 3.3)
+       *   2. Remove off-screen pipes (right edge < 0)     (Property 6 — Req 3.4)
+       *   3. Increment spawn timer; spawn when >= 1.5 s   (Property 6 — Req 3.1)
+       *
+       * @param {number} dt - Elapsed time in seconds.
+       */
+      PipeSystem.prototype.update = function (dt) {
+        var speed = CONFIG.PIPES.SPEED; // 120 px/s
+
+        // 1. Move all pipes left
+        for (var i = 0; i < this._pipes.length; i++) {
+          this._pipes[i].x -= speed * dt;
+        }
+
+        // 2. Remove pipes whose right edge has passed the left canvas boundary
+        this._pipes = this._pipes.filter(function (p) {
+          return p.x + p.width >= 0;
+        });
+
+        // 3. Tick spawn timer and spawn when interval elapsed
+        this._spawnTimer += dt;
+        if (this._spawnTimer >= CONFIG.PIPES.SPAWN_INTERVAL) {
+          this.spawnPipePair();
+        }
+      };
+
+      /**
+       * Create a new PipePair at the right edge of the canvas with a
+       * randomised gap centre within [GAP_MIN_Y, GAP_MAX_Y].
+       * Resets the spawn timer.                           (Property 5 — Req 3.2)
+       */
+      PipeSystem.prototype.spawnPipePair = function () {
+        var minY   = CONFIG.PIPES.GAP_MIN_Y;  // 75
+        var maxY   = CONFIG.PIPES.GAP_MAX_Y;  // 225
+        // Random in [minY, maxY] inclusive
+        var gapCenterY = minY + Math.random() * (maxY - minY);
+
+        this._pipes.push(new PipePair(this._canvasWidth, gapCenterY));
+        this._spawnTimer = 0;
+      };
+
+      /**
+       * Return the current array of active PipePair objects.
+       * @returns {PipePair[]}
+       */
+      PipeSystem.prototype.getActivePipes = function () {
+        return this._pipes;
+      };
+
+      /**
+       * Clear all active pipes and reset the spawn timer (used on game restart).
+       */
+      PipeSystem.prototype.reset = function () {
+        this._pipes      = [];
+        this._spawnTimer = 0;
+      };
+
+      return PipeSystem;
+    }());
+
+    // Expose for test access
+    globalThis.PipePair    = PipePair;
+    globalThis.PipeSystem  = PipeSystem;
+
+    // -----------------------------------------------------------------
+    // 5. CollisionSystem — pure AABB intersection checks
+    //    Requirements: 4.1, 4.2, 4.3, 4.4
+    // -----------------------------------------------------------------
+    var CollisionSystem = (function () {
+      function CollisionSystem() {}
+
+      /**
+       * Axis-aligned bounding box intersection test.
+       * Two boxes overlap when they are NOT separated on either axis.
+       *
+       * @param {{ x: number, y: number, width: number, height: number }} boxA
+       * @param {{ x: number, y: number, width: number, height: number }} boxB
+       * @returns {boolean} true if the boxes overlap on both axes simultaneously.
+       */
+      CollisionSystem.aabbIntersect = function (boxA, boxB) {
+        // Separated on x-axis?
+        if (boxA.x + boxA.width <= boxB.x) return false;
+        if (boxB.x + boxB.width <= boxA.x) return false;
+        // Separated on y-axis?
+        if (boxA.y + boxA.height <= boxB.y) return false;
+        if (boxB.y + boxB.height <= boxA.y) return false;
+        return true;
+      };
+
+      /**
+       * Check whether the ghost bounding box intersects any active pipe segment.
+       *
+       * For each PipePair two bounding boxes are built from the model data:
+       *   Top segment:    x=pipe.x, y=0,                       w=pipe.width, h=(gapCenterY - gapSize/2)
+       *   Bottom segment: x=pipe.x, y=(gapCenterY + gapSize/2), w=pipe.width, h=(canvasHeight - (gapCenterY + gapSize/2))
+       *
+       * @param {{ x: number, y: number, width: number, height: number }} ghostBox
+       * @param {PipePair[]} pipes  - Array of active PipePair objects.
+       * @returns {boolean} true if the ghost intersects any pipe segment.
+       */
+      CollisionSystem.checkGhostPipes = function (ghostBox, pipes) {
+        var canvasHeight = CONFIG.CANVAS_HEIGHT;
+
+        for (var i = 0; i < pipes.length; i++) {
+          var pipe       = pipes[i];
+          var halfGap    = pipe.gapSize / 2;          // 75
+          var topBottom  = pipe.gapCenterY - halfGap; // bottom edge of top segment
+          var botTop     = pipe.gapCenterY + halfGap; // top edge of bottom segment
+
+          // Top pipe segment (from canvas top down to the gap)
+          var topBox = {
+            x:      pipe.x,
+            y:      0,
+            width:  pipe.width,
+            height: topBottom
+          };
+
+          // Bottom pipe segment (from gap bottom down to canvas bottom)
+          var botBox = {
+            x:      pipe.x,
+            y:      botTop,
+            width:  pipe.width,
+            height: canvasHeight - botTop
+          };
+
+          if (CollisionSystem.aabbIntersect(ghostBox, topBox)) return true;
+          if (CollisionSystem.aabbIntersect(ghostBox, botBox)) return true;
+        }
+
+        return false;
+      };
+
+      /**
+       * Check whether the ghost has hit the top or bottom boundary of the canvas.
+       *
+       * @param {{ x: number, y: number, width: number, height: number }} ghostBox
+       * @param {{ height: number }} canvas  - Object with a `height` property (canvas dimensions).
+       * @returns {'top' | 'bottom' | null}
+       */
+      CollisionSystem.checkBoundaries = function (ghostBox, canvas) {
+        var canvasHeight = canvas.height !== undefined ? canvas.height : CONFIG.CANVAS_HEIGHT;
+
+        if (ghostBox.y <= 0) {
+          return 'top';
+        }
+        if (ghostBox.y + ghostBox.height >= canvasHeight) {
+          return 'bottom';
+        }
+        return null;
+      };
+
+      return CollisionSystem;
+    }());
+
+    // Expose for test access
+    globalThis.CollisionSystem = CollisionSystem;
+
+    // -----------------------------------------------------------------
+    // 6. ScoreSystem — scoring and localStorage persistence
+    //    Requirements: 5.1, 5.3, 5.4, 5.5
+    // -----------------------------------------------------------------
+    var ScoreSystem = (function () {
+      function ScoreSystem() {
+        this._currentScore = 0;
+        this._highScore    = this.loadHighScore();
+      }
+
+      /**
+       * Reset the current score to 0 (called on game restart).
+       * The high score is NOT reset — it persists for the session.
+       */
+      ScoreSystem.prototype.reset = function () {
+        this._currentScore = 0;
+      };
+
+      /**
+       * Returns the current score.
+       * @returns {number}
+       */
+      ScoreSystem.prototype.getCurrentScore = function () {
+        return this._currentScore;
+      };
+
+      /**
+       * Returns the current high score.
+       * @returns {number}
+       */
+      ScoreSystem.prototype.getHighScore = function () {
+        return this._highScore;
+      };
+
+      /**
+       * Check whether the Ghost has just passed the centre of a PipePair.
+       * Increments the score by exactly 1 if the ghost has cleared the pipe
+       * centre for the first time (pipe.scored === false).
+       *
+       * Property 9 — Requirements 5.1
+       *
+       * @param {{ x: number }} ghost    - Ghost instance (needs .x).
+       * @param {PipePair}      pipePair - The pipe to check.
+       * @returns {boolean} true if this call caused a score increment.
+       */
+      ScoreSystem.prototype.checkPipePassed = function (ghost, pipePair) {
+        if (!pipePair.scored && ghost.x >= pipePair.x + pipePair.width / 2) {
+          pipePair.scored = true;
+          this._currentScore += 1;
+          return true;
+        }
+        return false;
+      };
+
+      /**
+       * Compare current score with the stored high score and update if greater.
+       * Persists the new high score to localStorage (best-effort; failures are
+       * silently caught so a missing/disabled localStorage never crashes the game).
+       *
+       * Property 10 — Requirements 5.3, 5.4
+       */
+      ScoreSystem.prototype.updateHighScore = function () {
+        if (this._currentScore > this._highScore) {
+          this._highScore = this._currentScore;
+          try {
+            localStorage.setItem(CONFIG.STORAGE_KEY, String(this._highScore));
+          } catch (e) {
+            // localStorage unavailable (private mode, quota exceeded, etc.)
+            // The in-memory high score is preserved; persistence is best-effort.
+          }
+        }
+      };
+
+      /**
+       * Read the stored high score from localStorage.
+       * Returns 0 for any invalid value: missing, non-numeric, NaN, or negative.
+       *
+       * Property 11 — Requirements 5.5
+       *
+       * @returns {number}
+       */
+      ScoreSystem.prototype.loadHighScore = function () {
+        try {
+          var raw    = localStorage.getItem(CONFIG.STORAGE_KEY);
+          var parsed = parseInt(raw, 10);
+          if (isNaN(parsed) || parsed < 0) {
+            return 0;
+          }
+          return parsed;
+        } catch (e) {
+          // localStorage unavailable — default to 0
+          return 0;
+        }
+      };
+
+      return ScoreSystem;
+    }());
+
+    // Expose for test access
+    globalThis.ScoreSystem = ScoreSystem;
+
+    // -----------------------------------------------------------------
+    // 7. AudioSystem — sound playback with graceful failure handling
+    //    Requirements: 6.1, 6.2, 6.3
+    // -----------------------------------------------------------------
+    var AudioSystem = (function () {
+      /**
+       * @param {string} jumpSrc     - Path to the jump sound asset.
+       * @param {string} gameOverSrc - Path to the game-over sound asset.
+       */
+      function AudioSystem(jumpSrc, gameOverSrc) {
+        this._jumpAudio     = new Audio(jumpSrc);
+        this._gameOverAudio = new Audio(gameOverSrc);
+      }
+
+      /**
+       * Play the jump sound effect.
+       * Resets playback to the start so rapid re-triggering works correctly.
+       * Any playback failure is silently caught — the game continues unaffected.
+       *
+       * Requirements: 6.1, 6.3 / Property 12
+       */
+      AudioSystem.prototype.playJump = function () {
+        try {
+          this._jumpAudio.currentTime = 0;
+          this._jumpAudio.play();
+        } catch (e) {
+          // Browser blocked playback or asset failed — ignore silently.
+        }
+      };
+
+      /**
+       * Play the game-over sound effect.
+       * Resets playback to the start to allow back-to-back game-over events.
+       * Any playback failure is silently caught — the game continues unaffected.
+       *
+       * Requirements: 6.2, 6.3 / Property 12
+       */
+      AudioSystem.prototype.playGameOver = function () {
+        try {
+          this._gameOverAudio.currentTime = 0;
+          this._gameOverAudio.play();
+        } catch (e) {
+          // Browser blocked playback or asset failed — ignore silently.
+        }
+      };
+
+      return AudioSystem;
+    }());
+
+    // Expose for test access
+    globalThis.AudioSystem = AudioSystem;
+
+    // -----------------------------------------------------------------
+    // 8. Renderer — all Canvas 2D drawing operations
+    //    Requirements: 1.3, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
+    // -----------------------------------------------------------------
+    var Renderer = (function () {
+      /**
+       * @param {CanvasRenderingContext2D} ctx         - Canvas 2D rendering context.
+       * @param {number}                  canvasWidth  - Internal canvas width (px).
+       * @param {number}                  canvasHeight - Internal canvas height (px).
+       * @param {HTMLImageElement}        ghostImage   - Loaded ghost sprite image.
+       */
+      function Renderer(ctx, canvasWidth, canvasHeight, ghostImage) {
+        this._ctx          = ctx;
+        this._canvasWidth  = canvasWidth  !== undefined ? canvasWidth  : CONFIG.CANVAS_WIDTH;
+        this._canvasHeight = canvasHeight !== undefined ? canvasHeight : CONFIG.CANVAS_HEIGHT;
+        this._ghostImage   = ghostImage;
+      }
+
+      /**
+       * Main render entry-point called once per frame.
+       * Draws all visual elements in z-order (back to front):
+       *   background → clouds → pipes → ghost → score bar → state overlays
+       *
+       * Requirements: 8.6
+       *
+       * @param {string}    state        - Current GameState value.
+       * @param {Ghost}     ghost        - Ghost instance.
+       * @param {PipePair[]} pipes       - Active pipe pairs.
+       * @param {number}    currentScore - Score for the current run.
+       * @param {number}    highScore    - All-time high score.
+       */
+      Renderer.prototype.render = function (state, ghost, pipes, currentScore, highScore) {
+        // 1. Background (bottom-most layer)
+        this.drawBackground();
+
+        // 2. Clouds (behind everything interactive)
+        this.drawClouds();
+
+        // 3. Pipes
+        for (var i = 0; i < pipes.length; i++) {
+          this.drawPipePair(pipes[i]);
+        }
+
+        // 4. Ghost sprite
+        this.drawGhost(ghost);
+
+        // 5. Score bar (always on top of gameplay elements)
+        this.drawScoreBar(currentScore, highScore);
+
+        // 6. State-specific overlays (on top of everything)
+        if (state === GameState.START) {
+          this.drawStartScreen();
+        } else if (state === GameState.GAME_OVER) {
+          this.drawGameOverScreen(currentScore, highScore);
+        }
+      };
+
+      // ---------------------------------------------------------------
+      // Sub-draw methods
+      // ---------------------------------------------------------------
+
+      /**
+       * Fill the entire canvas with a solid blue background.
+       * Requirements: 8.1
+       */
+      Renderer.prototype.drawBackground = function () {
+        this._ctx.fillStyle = '#6EC6F0'; // sky blue
+        this._ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
+      };
+
+      /**
+       * Draw decorative white clouds at fixed positions from CONFIG.CLOUDS.
+       * Each cloud is a simple white circle.
+       * Requirements: 8.2
+       */
+      Renderer.prototype.drawClouds = function () {
+        var ctx    = this._ctx;
+        var clouds = CONFIG.CLOUDS;
+
+        ctx.fillStyle = '#FFFFFF';
+        for (var i = 0; i < clouds.length; i++) {
+          var c = clouds[i];
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, c.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      };
+
+      /**
+       * Draw one PipePair: a green body rectangle topped/bottomed by a
+       * wider green cap at the gap-facing end of each segment.
+       *
+       * Top pipe:
+       *   - Body: x=pipe.x, y=0, w=pipe.width(60), h=topBottom
+       *   - Cap:  centered on body, y=(topBottom - capHeight), w=capWidth(68), h=capHeight(20)
+       *
+       * Bottom pipe:
+       *   - Body: x=pipe.x, y=botTop, w=pipe.width(60), h=(canvasHeight - botTop)
+       *   - Cap:  centered on body, y=botTop, w=capWidth(68), h=capHeight(20)
+       *
+       * Requirements: 8.4, 3.5
+       *
+       * @param {PipePair} pipePair
+       */
+      Renderer.prototype.drawPipePair = function (pipePair) {
+        var ctx        = this._ctx;
+        var halfGap    = pipePair.gapSize / 2;             // 75
+        var topBottom  = pipePair.gapCenterY - halfGap;    // bottom y of top pipe body
+        var botTop     = pipePair.gapCenterY + halfGap;    // top y of bottom pipe body
+
+        var bodyX      = pipePair.x;
+        var bodyW      = pipePair.width;                   // 60
+        var capW       = pipePair.capWidth;                // 68
+        var capH       = pipePair.capHeight;               // 20
+        // Horizontal offset to centre the wider cap over the body
+        var capOffsetX = (capW - bodyW) / 2;               // 4
+
+        ctx.fillStyle = '#5DB85D'; // pipe green
+
+        // --- Top pipe body ---
+        ctx.fillRect(bodyX, 0, bodyW, topBottom);
+
+        // --- Top pipe cap (at gap-facing / bottom end) ---
+        ctx.fillRect(bodyX - capOffsetX, topBottom - capH, capW, capH);
+
+        // --- Bottom pipe body ---
+        ctx.fillRect(bodyX, botTop, bodyW, this._canvasHeight - botTop);
+
+        // --- Bottom pipe cap (at gap-facing / top end) ---
+        ctx.fillRect(bodyX - capOffsetX, botTop, capW, capH);
+      };
+
+      /**
+       * Draw the Ghost sprite at its current position.
+       * Requirements: 8.3
+       *
+       * @param {Ghost} ghost
+       */
+      Renderer.prototype.drawGhost = function (ghost) {
+        if (this._ghostImage) {
+          this._ctx.drawImage(
+            this._ghostImage,
+            ghost.x - ghost.width  / 2,  // centre the sprite on ghost.x
+            ghost.y - ghost.height / 2,  // centre the sprite on ghost.y
+            ghost.width,
+            ghost.height
+          );
+        }
+      };
+
+      /**
+       * Draw a dark score bar at the bottom of the canvas.
+       * Format: "Score: X | High: Y"
+       * Requirements: 5.2, 8.5
+       *
+       * @param {number} currentScore
+       * @param {number} highScore
+       */
+      Renderer.prototype.drawScoreBar = function (currentScore, highScore) {
+        var ctx        = this._ctx;
+        var barHeight  = 36;
+        var barY       = this._canvasHeight - barHeight;
+
+        // Dark semi-transparent bar
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+        ctx.fillRect(0, barY, this._canvasWidth, barHeight);
+
+        // Score text
+        ctx.fillStyle    = '#FFFFFF';
+        ctx.font         = 'bold 18px monospace';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          'Score: ' + currentScore + ' | High: ' + highScore,
+          this._canvasWidth / 2,
+          barY + barHeight / 2
+        );
+      };
+
+      /**
+       * Draw the START state overlay: instruction text.
+       * The ghost is already drawn by the main render pass; this only adds
+       * the instructional message.
+       * Requirements: 1.3
+       */
+      Renderer.prototype.drawStartScreen = function () {
+        var ctx         = this._ctx;
+        var cx          = this._canvasWidth  / 2;  // 400
+        var cy          = this._canvasHeight / 2;  // 300
+
+        // Semi-transparent instruction panel
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.fillRect(cx - 200, cy + 30, 400, 50);
+
+        // Instruction text
+        ctx.fillStyle    = '#FFFFFF';
+        ctx.font         = 'bold 20px monospace';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Press Space, Click, or Tap to begin', cx, cy + 55);
+      };
+
+      /**
+       * Draw the GAME_OVER state overlay: game over message and restart prompt.
+       * Requirements: 7.3
+       *
+       * @param {number} currentScore - Final score for this run.
+       * @param {number} highScore    - All-time high score.
+       */
+      Renderer.prototype.drawGameOverScreen = function (currentScore, highScore) {
+        var ctx = this._ctx;
+        var cx  = this._canvasWidth  / 2;  // 400
+        var cy  = this._canvasHeight / 2;  // 300
+
+        // Dark overlay panel
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.60)';
+        ctx.fillRect(cx - 200, cy - 70, 400, 150);
+
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+
+        // "Game Over" title
+        ctx.fillStyle = '#FF4444';
+        ctx.font      = 'bold 36px monospace';
+        ctx.fillText('Game Over', cx, cy - 30);
+
+        // Final score line
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font      = 'bold 20px monospace';
+        ctx.fillText('Score: ' + currentScore + ' | High: ' + highScore, cx, cy + 10);
+
+        // Restart prompt
+        ctx.fillStyle = '#CCCCCC';
+        ctx.font      = '16px monospace';
+        ctx.fillText('Press Space, Click, or Tap to restart', cx, cy + 45);
+      };
+
+      return Renderer;
+    }());
+
+    // Expose for test access
+    globalThis.Renderer = Renderer;
+
+    // -----------------------------------------------------------------
+    // 9. GameEngine — top-level coordinator: game loop + state machine
+    //    Requirements: 1.1, 1.3, 2.1, 7.1, 7.2, 7.3, 7.4
+    // -----------------------------------------------------------------
+    var GameEngine = (function () {
+      /**
+       * @param {HTMLCanvasElement}       canvas - The game canvas element.
+       * @param {HTMLImageElement}        ghostImage - Loaded ghost sprite.
+       * @param {string}                  jumpSrc    - Path to jump sound asset.
+       * @param {string}                  gameOverSrc - Path to game-over sound asset.
+       */
+      function GameEngine(canvas, ghostImage, jumpSrc, gameOverSrc) {
+        this._canvas   = canvas;
+        this._ctx      = canvas.getContext('2d');
+        this._lastTime = null;   // set when the loop first fires
+        this._rafId    = null;   // requestAnimationFrame handle
+
+        // Subsystem instances
+        this._ghost      = new Ghost(CONFIG.GHOST.X, CONFIG.GHOST.Y, CONFIG.GHOST.WIDTH, CONFIG.GHOST.HEIGHT);
+        this._pipeSystem = new PipeSystem(CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
+        this._collision  = new CollisionSystem();
+        this._score      = new ScoreSystem();
+        this._audio      = new AudioSystem(
+          jumpSrc     || 'assets/jump.wav',
+          gameOverSrc || 'assets/game_over.wav'
+        );
+        this._renderer   = new Renderer(this._ctx, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT, ghostImage);
+
+        // Initial game state (Requirement 7.1)
+        this._state = GameState.START;
+
+        // Bind the loop callback once so it can be passed to rAF
+        this._loop = this._loop.bind(this);
+
+        // Bind the input handler once so the same reference can be removed if needed
+        this._onInput = this._onInput.bind(this);
+      }
+
+      // ---------------------------------------------------------------
+      // Public API
+      // ---------------------------------------------------------------
+
+      /**
+       * Attach input listeners and kick off the requestAnimationFrame loop.
+       * Requirements: 1.1
+       */
+      GameEngine.prototype.start = function () {
+        // Keyboard: Spacebar
+        window.addEventListener('keydown', this._onInput);
+        // Mouse click
+        this._canvas.addEventListener('click', this._onInput);
+        // Touch (mobile tap)
+        // Not passive so we can call preventDefault() to suppress scroll on tap
+        this._canvas.addEventListener('touchstart', this._onInput, { passive: false });
+
+        // Begin the render/update loop
+        this._rafId = requestAnimationFrame(this._loop);
+      };
+
+      /**
+       * Route player input to the correct action based on current state.
+       * Requirements: 7.2 (START→PLAYING), 2.1 (jump), 7.4 (GAME_OVER restart)
+       */
+      GameEngine.prototype.handleInput = function () {
+        if (this._state === GameState.START) {
+          // First input starts the game and gives an initial jump
+          this.transitionTo(GameState.PLAYING);
+          this._ghost.applyJump();
+
+        } else if (this._state === GameState.PLAYING) {
+          // Mid-game input: jump + play sound
+          this._ghost.applyJump();
+          this._audio.playJump();
+
+        } else if (this._state === GameState.GAME_OVER) {
+          // Restart: reset everything, go straight to PLAYING, give initial jump
+          this.reset();
+          this._ghost.applyJump();
+        }
+      };
+
+      /**
+       * Per-frame update — only does work in the PLAYING state.
+       * Updates physics, pipes, checks collisions and boundaries, updates score.
+       *
+       * @param {number} dt - Elapsed time in seconds since the last frame.
+       */
+      GameEngine.prototype.update = function (dt) {
+        if (this._state !== GameState.PLAYING) {
+          return;
+        }
+
+        // 1. Ghost physics
+        this._ghost.update(dt);
+
+        // 2. Pipe scrolling / spawning
+        this._pipeSystem.update(dt);
+
+        var pipes    = this._pipeSystem.getActivePipes();
+        var ghostBox = this._ghost.getBoundingBox();
+
+        // 3. Collision with pipes (Requirement 4.1, 4.2)
+        if (CollisionSystem.checkGhostPipes(ghostBox, pipes)) {
+          this.transitionTo(GameState.GAME_OVER);
+          return;
+        }
+
+        // 4. Boundary collision (Requirement 4.3, 4.4 / 2.4)
+        var boundary = CollisionSystem.checkBoundaries(ghostBox, this._canvas);
+        if (boundary !== null) {
+          this.transitionTo(GameState.GAME_OVER);
+          return;
+        }
+
+        // 5. Scoring: check every active pipe (Requirement 5.1)
+        for (var i = 0; i < pipes.length; i++) {
+          this._score.checkPipePassed(this._ghost, pipes[i]);
+        }
+      };
+
+      /**
+       * Delegate rendering to the Renderer subsystem.
+       * Requirements: 8.1–8.6
+       */
+      GameEngine.prototype.render = function () {
+        this._renderer.render(
+          this._state,
+          this._ghost,
+          this._pipeSystem.getActivePipes(),
+          this._score.getCurrentScore(),
+          this._score.getHighScore()
+        );
+      };
+
+      /**
+       * Transition to a new game state and trigger any associated side effects.
+       *
+       * Side effects on GAME_OVER:
+       *   - Update + persist high score (Requirement 5.3, 5.4)
+       *   - Play game-over sound (Requirement 6.2)
+       *
+       * @param {string} newState - One of GameState.START / PLAYING / GAME_OVER.
+       */
+      GameEngine.prototype.transitionTo = function (newState) {
+        this._state = newState;
+
+        if (newState === GameState.GAME_OVER) {
+          this._score.updateHighScore();    // persist if new record (Req 5.3, 5.4)
+          this._audio.playGameOver();       // sound effect (Req 6.2)
+        }
+      };
+
+      /**
+       * Reset all subsystems to their initial state and move to PLAYING.
+       * Called on restart from GAME_OVER.
+       * Requirements: 7.4
+       */
+      GameEngine.prototype.reset = function () {
+        this._score.reset();      // current score → 0
+        this._pipeSystem.reset(); // clear all pipes
+        this._ghost.reset();      // position (400, 300), velocity 0
+        this._state = GameState.PLAYING;
+      };
+
+      // ---------------------------------------------------------------
+      // Private helpers
+      // ---------------------------------------------------------------
+
+      /**
+       * requestAnimationFrame callback — the main game loop.
+       * Calculates delta time, clamps to avoid spiral-of-death, then
+       * updates and renders.
+       *
+       * @param {DOMHighResTimeStamp} timestamp - Current time in ms from rAF.
+       */
+      GameEngine.prototype._loop = function (timestamp) {
+        // Initialise lastTime on the very first frame
+        if (this._lastTime === null) {
+          this._lastTime = timestamp;
+        }
+
+        // Delta time in seconds; clamp to ~2 frames at 60 fps (≈ 33 ms)
+        // to prevent large jumps after the tab is backgrounded.
+        var dt = (timestamp - this._lastTime) / 1000;
+        if (dt > 0.033) {
+          dt = 0.033;
+        }
+        this._lastTime = timestamp;
+
+        this.update(dt);
+        this.render();
+
+        this._rafId = requestAnimationFrame(this._loop);
+      };
+
+      /**
+       * Internal input event handler — filters to Spacebar for keyboard events,
+       * passes through for click / touchstart.
+       *
+       * @param {Event} e
+       */
+      GameEngine.prototype._onInput = function (e) {
+        // For keyboard events only respond to the Spacebar
+        if (e.type === 'keydown' && e.code !== 'Space') {
+          return;
+        }
+        // Prevent the page from scrolling on Space / touch
+        if (e.type === 'keydown' || e.type === 'touchstart') {
+          e.preventDefault();
+        }
+        this.handleInput();
+      };
+
+      return GameEngine;
+    }());
+
+    // Expose for test access
+    globalThis.GameEngine = GameEngine;
+
+    /* ===================================================================
+       Asset loader and game bootstrap
+       Requirements: 1.1, 1.2, 1.3
+    =================================================================== */
+    (function () {
+      var canvas = document.getElementById('gameCanvas');
+      var ctx    = canvas.getContext('2d');
+
+      // ---------------------------------------------------------------
+      // Helper: draw a fatal error message on the canvas and stop.
+      // Called when any asset fires onerror (Requirement 1.2).
+      // ---------------------------------------------------------------
+      function showLoadError() {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
+
+        ctx.fillStyle    = '#FF4444';
+        ctx.font         = 'bold 20px monospace';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          'Failed to load game assets. Please refresh the page.',
+          CONFIG.CANVAS_WIDTH / 2,
+          CONFIG.CANVAS_HEIGHT / 2
+        );
+      }
+
+      // ---------------------------------------------------------------
+      // Asset tracking: start the engine only when all 3 are ready.
+      // ---------------------------------------------------------------
+      var TOTAL_ASSETS  = 3;
+      var loadedCount   = 0;
+      var errorOccurred = false;
+
+      var ghostImage    = new Image();
+      var jumpAudio     = new Audio();
+      var gameOverAudio = new Audio();
+
+      function onAssetLoaded() {
+        if (errorOccurred) return; // an error already fired — ignore late loads
+        loadedCount += 1;
+        if (loadedCount === TOTAL_ASSETS) {
+          // All assets ready — create and start the engine (Requirement 1.1, 1.3)
+          var engine = new GameEngine(
+            canvas,
+            ghostImage,
+            'assets/jump.wav',
+            'assets/game_over.wav'
+          );
+          engine.start();
+        }
+      }
+
+      function onAssetError() {
+        if (errorOccurred) return; // show the error only once
+        errorOccurred = true;
+        showLoadError(); // Requirement 1.2
+      }
+
+      // ---------------------------------------------------------------
+      // Ghost image (uses onload)
+      // ---------------------------------------------------------------
+      ghostImage.onload  = onAssetLoaded;
+      ghostImage.onerror = onAssetError;
+      ghostImage.src     = 'assets/ghosty.png';
+
+      // ---------------------------------------------------------------
+      // Jump sound (uses oncanplaythrough so we know it is decodeable)
+      // ---------------------------------------------------------------
+      jumpAudio.oncanplaythrough = onAssetLoaded;
+      jumpAudio.onerror          = onAssetError;
+      jumpAudio.src              = 'assets/jump.wav';
+
+      // ---------------------------------------------------------------
+      // Game-over sound
+      // ---------------------------------------------------------------
+      gameOverAudio.oncanplaythrough = onAssetLoaded;
+      gameOverAudio.onerror          = onAssetError;
+      gameOverAudio.src              = 'assets/game_over.wav';
+
+      // Trigger preloading in browsers that don't start loading automatically
+      jumpAudio.load();
+      gameOverAudio.load();
+    }());
+
+    /* ===================================================================
+       Responsive canvas resize handler
+       Requirements: 9.3
+
+       Scales the canvas CSS display size to fill the available viewport
+       while preserving the fixed 4:3 (800:600) aspect ratio.
+       The internal canvas resolution (canvas.width / canvas.height = 800×600)
+       is NEVER changed — only the CSS width/height properties are updated.
+    =================================================================== */
+    (function () {
+      var canvas       = document.getElementById('gameCanvas');
+      var ASPECT_RATIO = CONFIG.CANVAS_WIDTH / CONFIG.CANVAS_HEIGHT; // 800/600 ≈ 1.333…
+
+      /**
+       * Recompute and apply the canvas CSS dimensions to fit the viewport.
+       * Called once on load and again on every 'resize' event.
+       */
+      function resizeCanvas() {
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+
+        var cssWidth, cssHeight;
+
+        if (vw / vh > ASPECT_RATIO) {
+          // Viewport is wider than 4:3 — height is the limiting dimension
+          cssHeight = vh;
+          cssWidth  = Math.floor(vh * ASPECT_RATIO);
+        } else {
+          // Viewport is taller than 4:3 (or exactly 4:3) — width limits
+          cssWidth  = vw;
+          cssHeight = Math.floor(vw / ASPECT_RATIO);
+        }
+
+        canvas.style.width  = cssWidth  + 'px';
+        canvas.style.height = cssHeight + 'px';
+      }
+
+      // Apply immediately so the first paint is correctly sized
+      resizeCanvas();
+
+      // Re-apply whenever the browser viewport changes
+      window.addEventListener('resize', resizeCanvas);
+
+      // Expose for property test access (task 12.2)
+      globalThis.resizeCanvas = resizeCanvas;
+    }());
+
+  </script>
+</body>
+</html>
