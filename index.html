@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Flappy Kiro</title>
+  <link rel="icon" type="image/png" href="assets/ghosty.png" />
   <style>
     /* -----------------------------------------------------------------------
        Reset and full-viewport layout
@@ -97,11 +98,17 @@
         CAP_WIDTH: 68,      // pipe cap width (px) — wider than body
         CAP_HEIGHT: 20,     // pipe cap height (px)
         GAP_SIZE: 150,      // vertical gap between top and bottom pipe (px)
-        GAP_MIN_Y: 75,      // minimum gap center Y from top of canvas (px)
-        GAP_MAX_Y: 225,     // maximum gap center Y from top of canvas (px)
+        GAP_MIN_Y: 100,     // minimum gap center Y from top of canvas (px)
+        GAP_MAX_Y: 390,     // maximum gap center Y (adjusted so gap stays above ground floor)
+        GAP_MAX_DELTA: 150, // max vertical shift of gap center between consecutive pipes (px)
         SPEED: 120,         // leftward scroll speed (px/s)
         SPAWN_INTERVAL: 1.5 // time between new pipe pairs (seconds)
       },
+
+      // Y position of the ground (top of the grass strip).
+      // This is the bottom boundary for gameplay — the ghost dies if it touches it.
+      // scoreBarH=36, grassH=48 → grassY = 600 - 36 - 48 = 516
+      GROUND_Y: 516,
 
       STORAGE_KEY: 'flappyKiroHighScore',
 
@@ -273,9 +280,12 @@
       function PipeSystem(canvasWidth, canvasHeight) {
         this._canvasWidth  = canvasWidth  !== undefined ? canvasWidth  : CONFIG.CANVAS_WIDTH;
         this._canvasHeight = canvasHeight !== undefined ? canvasHeight : CONFIG.CANVAS_HEIGHT;
-        this._pipes        = [];
-        this._spawnTimer   = 0;
-        this._totalSpawned = 0; // contador total de pares generados (para activar tubos móviles)
+        this._pipes           = [];
+        this._spawnTimer      = 0;
+        this._totalSpawned    = 0; // contador total de pares generados (para activar tubos móviles)
+        // Posición del centro del hueco del último tubo generado.
+        // Arranca en el centro del canvas para que el primer tubo sea razonable.
+        this._lastGapCenterY  = (CONFIG.PIPES.GAP_MIN_Y + CONFIG.PIPES.GAP_MAX_Y) / 2;
       }
 
       /**
@@ -289,8 +299,8 @@
       PipeSystem.prototype.update = function (dt) {
         var speed      = CONFIG.PIPES.SPEED; // 120 px/s
         var halfGap    = CONFIG.PIPES.GAP_SIZE / 2;
-        var minCenter  = CONFIG.PIPES.GAP_MIN_Y;  // 75 — límite superior del centro del hueco
-        var maxCenter  = CONFIG.PIPES.GAP_MAX_Y;  // 225 — límite inferior del centro del hueco
+        var minCenter  = CONFIG.PIPES.GAP_MIN_Y;  // 100 — límite superior del centro del hueco
+        var maxCenter  = CONFIG.PIPES.GAP_MAX_Y;  // 390 — límite inferior del centro del hueco
 
         // 1. Move all pipes left; also update vertical position for moving pipes
         for (var i = 0; i < this._pipes.length; i++) {
@@ -329,10 +339,16 @@
        * Resets the spawn timer.                           (Property 5 — Req 3.2)
        */
       PipeSystem.prototype.spawnPipePair = function () {
-        var minY   = CONFIG.PIPES.GAP_MIN_Y;  // 75
-        var maxY   = CONFIG.PIPES.GAP_MAX_Y;  // 225
-        // Random in [minY, maxY] inclusive
-        var gapCenterY = minY + Math.random() * (maxY - minY);
+        var minY     = CONFIG.PIPES.GAP_MIN_Y;  // 100
+        var maxY     = CONFIG.PIPES.GAP_MAX_Y;  // 450
+        var maxDelta = CONFIG.PIPES.GAP_MAX_DELTA; // máxima variación respecto al tubo anterior
+
+        // Limitar el rango al entorno del último tubo para evitar saltos imposibles
+        var rangeMin   = Math.max(minY, this._lastGapCenterY - maxDelta);
+        var rangeMax   = Math.min(maxY, this._lastGapCenterY + maxDelta);
+        var gapCenterY = rangeMin + Math.random() * (rangeMax - rangeMin);
+
+        this._lastGapCenterY = gapCenterY;
 
         // A partir del tubo 15, aproximadamente 1 de cada 3 pares es móvil
         this._totalSpawned += 1;
@@ -354,9 +370,10 @@
        * Clear all active pipes and reset the spawn timer (used on game restart).
        */
       PipeSystem.prototype.reset = function () {
-        this._pipes        = [];
-        this._spawnTimer   = 0;
-        this._totalSpawned = 0;
+        this._pipes           = [];
+        this._spawnTimer      = 0;
+        this._totalSpawned    = 0;
+        this._lastGapCenterY  = (CONFIG.PIPES.GAP_MIN_Y + CONFIG.PIPES.GAP_MAX_Y) / 2;
       };
 
       return PipeSystem;
@@ -403,7 +420,8 @@
        * @returns {boolean} true if the ghost intersects any pipe segment.
        */
       CollisionSystem.checkGhostPipes = function (ghostBox, pipes) {
-        var canvasHeight = CONFIG.CANVAS_HEIGHT;
+        // Bottom pipes now end at the ground level, not the full canvas height
+        var groundY = CONFIG.GROUND_Y;
 
         for (var i = 0; i < pipes.length; i++) {
           var pipe       = pipes[i];
@@ -426,12 +444,12 @@
             height: topBottom
           };
 
-          // Bottom pipe segment (from gap bottom down to canvas bottom)
+          // Bottom pipe segment (from gap bottom down to the ground level)
           var botBox = {
             x:      pipe.x - capOffsetX,
             y:      botTop,
             width:  collisionWidth,
-            height: canvasHeight - botTop
+            height: groundY - botTop
           };
 
           if (CollisionSystem.aabbIntersect(ghostBox, topBox)) return true;
@@ -449,12 +467,12 @@
        * @returns {'top' | 'bottom' | null}
        */
       CollisionSystem.checkBoundaries = function (ghostBox, canvas) {
-        var canvasHeight = canvas.height !== undefined ? canvas.height : CONFIG.CANVAS_HEIGHT;
-
+        // Top boundary: canvas top edge
         if (ghostBox.y <= 0) {
           return 'top';
         }
-        if (ghostBox.y + ghostBox.height >= canvasHeight) {
+        // Bottom boundary: the grass ground level (not the canvas bottom)
+        if (ghostBox.y + ghostBox.height >= CONFIG.GROUND_Y) {
           return 'bottom';
         }
         return null;
@@ -666,6 +684,10 @@
         // 1.0 = fully visible, 0 = invisible; decrements when game begins
         this.startScreenAlpha    = 1.0;
         this.startScreenFading   = false; // true while fade-out is running
+
+        // Ground scroll offset — advances at PIPES.SPEED so the grass
+        // tiles move in sync with the pipes. Wraps at tile repeat width.
+        this.groundScrollX = 0;
       }
 
       /**
@@ -688,13 +710,14 @@
         // 2. Clouds (behind everything interactive)
         this.drawClouds();
 
-        // 2b. Graveyard scenery at the bottom
-        this.drawGraveyard();
-
-        // 3. Pipes
+        // 3. Pipes (drawn before ground so ground overlaps bottom of pipes)
         for (var i = 0; i < pipes.length; i++) {
           this.drawPipePair(pipes[i]);
         }
+
+        // 3b. Graveyard scenery at the bottom — drawn AFTER pipes so the
+        //     grass/fence/stones always appear on top of the pipe bodies
+        this.drawGraveyard();
 
         // 4. Ghost sprite
         this.drawGhost(ghost);
@@ -731,8 +754,26 @@
        * Requirements: 8.1
        */
       Renderer.prototype.drawBackground = function () {
-        this._ctx.fillStyle = '#6EC6F0'; // sky blue
-        this._ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
+        var ctx = this._ctx;
+        var cw  = this._canvasWidth;
+        var ch  = this._canvasHeight;
+        var groundY = CONFIG.GROUND_Y; // 516
+
+        // Sky gradient: brighter blue at top, fading to a hazy pale blue-grey near the ground
+        var skyGrad = ctx.createLinearGradient(0, 0, 0, groundY);
+        skyGrad.addColorStop(0.0,  '#5BB8F5'); // deep sky blue at top
+        skyGrad.addColorStop(0.65, '#7ECEF5'); // mid sky
+        skyGrad.addColorStop(1.0,  '#C8E8F8'); // hazy/washed out near ground
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, cw, ch);
+
+        // Soft ground-haze overlay: a nearly transparent gradient band
+        // over the lower ~30% of the sky area to simulate atmospheric diffusion
+        var hazeGrad = ctx.createLinearGradient(0, groundY * 0.6, 0, groundY);
+        hazeGrad.addColorStop(0.0, 'rgba(255, 255, 255, 0)');
+        hazeGrad.addColorStop(1.0, 'rgba(220, 240, 255, 0.35)');
+        ctx.fillStyle = hazeGrad;
+        ctx.fillRect(0, groundY * 0.6, cw, groundY - groundY * 0.6);
       };
 
       /**
@@ -807,214 +848,41 @@
       };
 
       /**
-       * Draw a rounded-top gravestone with "RIP" text (classic style).
-       * @param {number} x  - Horizontal center.
-       * @param {number} y  - Bottom y.
-       * @param {number} w  - Width.
-       * @param {number} h  - Height.
-       */
-      Renderer.prototype.drawGravestoneRound = function (x, y, w, h) {
-        var ctx = this._ctx;
-        var r   = w / 2; // radius of the rounded top
-
-        // Body
-        ctx.fillStyle = '#9E9E9E';
-        ctx.beginPath();
-        ctx.rect(x - r, y - h + r, w, h - r);
-        ctx.fill();
-
-        // Rounded top
-        ctx.beginPath();
-        ctx.arc(x, y - h + r, r, Math.PI, 0);
-        ctx.fill();
-
-        // Left shadow strip
-        ctx.fillStyle = '#757575';
-        ctx.fillRect(x - r, y - h + r, w * 0.28, h - r);
-
-        // RIP text
-        ctx.fillStyle    = '#BDBDBD';
-        ctx.font         = 'bold ' + Math.floor(h * 0.22) + 'px monospace';
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('RIP', x, y - h * 0.45);
-      };
-
-      /**
-       * Draw a flat-top rectangular gravestone with chiseled corners.
-       * @param {number} x  - Horizontal center.
-       * @param {number} y  - Bottom y.
-       * @param {number} w  - Width.
-       * @param {number} h  - Height.
-       */
-      Renderer.prototype.drawGravestoneRect = function (x, y, w, h) {
-        var ctx   = this._ctx;
-        var notch = w * 0.18; // small chamfer on top corners
-
-        // Main body with chamfered top corners
-        ctx.fillStyle = '#8D8D8D';
-        ctx.beginPath();
-        ctx.moveTo(x - w / 2 + notch, y - h);        // top-left after chamfer
-        ctx.lineTo(x + w / 2 - notch, y - h);        // top-right before chamfer
-        ctx.lineTo(x + w / 2,         y - h + notch);// right chamfer
-        ctx.lineTo(x + w / 2,         y);             // bottom-right
-        ctx.lineTo(x - w / 2,         y);             // bottom-left
-        ctx.lineTo(x - w / 2,         y - h + notch);// left chamfer
-        ctx.closePath();
-        ctx.fill();
-
-        // Left shadow
-        ctx.fillStyle = '#616161';
-        ctx.beginPath();
-        ctx.moveTo(x - w / 2,         y - h + notch);
-        ctx.lineTo(x - w / 2 + notch, y - h);
-        ctx.lineTo(x - w / 2 + notch + w * 0.22, y - h);
-        ctx.lineTo(x - w / 2 + w * 0.22,         y);
-        ctx.lineTo(x - w / 2,                     y);
-        ctx.closePath();
-        ctx.fill();
-
-        // Horizontal engraved line (decorative groove)
-        ctx.strokeStyle = '#616161';
-        ctx.lineWidth   = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(x - w / 2 + 4, y - h * 0.65);
-        ctx.lineTo(x + w / 2 - 4, y - h * 0.65);
-        ctx.stroke();
-
-        // "RIP" text below groove
-        ctx.fillStyle    = '#BDBDBD';
-        ctx.font         = 'bold ' + Math.floor(h * 0.2) + 'px monospace';
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('RIP', x, y - h * 0.35);
-      };
-
-      /**
-       * Draw a gravestone topped with a cross.
-       * @param {number} x  - Horizontal center.
-       * @param {number} y  - Bottom y.
-       * @param {number} w  - Width of the stone base.
-       * @param {number} h  - Total height including cross.
-       */
-      Renderer.prototype.drawGravestoneCross = function (x, y, w, h) {
-        var ctx       = this._ctx;
-        var baseH     = h * 0.55;  // height of the rectangular stone base
-        var crossH    = h * 0.5;   // height of the cross above the base
-        var crossW    = w * 0.22;  // width of the cross vertical bar
-        var armW      = w * 0.75;  // width of the cross horizontal arm
-        var armH      = crossH * 0.28; // height of the cross horizontal arm
-        var armY      = y - baseH - crossH * 0.62; // y center of horizontal arm
-
-        // Stone base (flat-top rectangle)
-        ctx.fillStyle = '#8D8D8D';
-        ctx.fillRect(x - w / 2, y - baseH, w, baseH);
-
-        // Left shadow on base
-        ctx.fillStyle = '#616161';
-        ctx.fillRect(x - w / 2, y - baseH, w * 0.25, baseH);
-
-        // Cross vertical bar
-        ctx.fillStyle = '#9E9E9E';
-        ctx.fillRect(x - crossW / 2, y - baseH - crossH, crossW, crossH);
-
-        // Cross horizontal arm
-        ctx.fillRect(x - armW / 2, armY - armH / 2, armW, armH);
-
-        // Subtle shadow on left of cross vertical bar
-        ctx.fillStyle = '#757575';
-        ctx.fillRect(x - crossW / 2, y - baseH - crossH, crossW * 0.35, crossH);
-
-        // Subtle shadow on top-left of horizontal arm
-        ctx.fillRect(x - armW / 2, armY - armH / 2, armW * 0.35, armH);
-      };
-
-      /**
-       * Draw a gravestone using one of three styles based on the `style` param.
-       * @param {number} x      - Horizontal center.
-       * @param {number} y      - Bottom y.
-       * @param {number} w      - Width.
-       * @param {number} h      - Height.
-       * @param {string} style  - 'round' | 'rect' | 'cross'
-       */
-      Renderer.prototype.drawGravestone = function (x, y, w, h, style) {
-        if (style === 'rect') {
-          this.drawGravestoneRect(x, y, w, h);
-        } else if (style === 'cross') {
-          this.drawGravestoneCross(x, y, w, h);
-        } else {
-          this.drawGravestoneRound(x, y, w, h);
-        }
-      };
-
-      /**
-       * Draw the graveyard scenery at the bottom of the canvas.
-       * Renders a grass strip, a wooden fence, and several gravestones.
+       * Draw the scrolling ground strip at the bottom of the canvas.
+       * Uses groundScrollX to animate the grass blades in sync with the pipes.
        */
       Renderer.prototype.drawGraveyard = function () {
-        var ctx    = this._ctx;
-        var cw     = this._canvasWidth;   // 800
-        var ch     = this._canvasHeight;  // 600
-        var scoreBarH = 36; // must match drawScoreBar barHeight
+        var ctx  = this._ctx;
+        var cw   = this._canvasWidth;   // 800
+        var ch   = this._canvasHeight;  // 600
 
-        // ---- Grass strip ----
-        // Drawn just above the score bar
-        var grassH = 48;
-        var grassY = ch - scoreBarH - grassH;
+        var grassY = CONFIG.GROUND_Y; // 516
+        var grassH = ch - grassY;     // 84 px — covers to canvas bottom
 
-        // Dark grass base
-        ctx.fillStyle = '#2E7D32';
+        // Dark earth fill
+        ctx.fillStyle = '#1B5E20';
         ctx.fillRect(0, grassY, cw, grassH);
 
-        // Lighter top edge for a lawn look
+        // Mid-tone grass surface band
+        ctx.fillStyle = '#2E7D32';
+        ctx.fillRect(0, grassY, cw, 14);
+
+        // Lighter top highlight strip
         ctx.fillStyle = '#388E3C';
-        ctx.fillRect(0, grassY, cw, 10);
+        ctx.fillRect(0, grassY, cw, 6);
 
-        // Individual grass blades (simple triangles sprinkled across)
+        // Scrolling grass blades — tile width is 14 px, offset by groundScrollX
+        var bladeSpacing = 14;
+        // Calculate starting x so blades tile seamlessly across the full width
+        var startX = -(this.groundScrollX % bladeSpacing);
+
         ctx.fillStyle = '#4CAF50';
-        for (var bx = 6; bx < cw; bx += 14) {
+        for (var bx = startX; bx < cw; bx += bladeSpacing) {
           ctx.beginPath();
-          ctx.moveTo(bx,     grassY + 10);
-          ctx.lineTo(bx + 5, grassY);
-          ctx.lineTo(bx + 10, grassY + 10);
+          ctx.moveTo(bx,      grassY + 7);
+          ctx.lineTo(bx + 5,  grassY - 1);
+          ctx.lineTo(bx + 10, grassY + 7);
           ctx.fill();
-        }
-
-        // ---- Wooden fence ----
-        var fenceY    = grassY - 14;
-        var postW     = 8;
-        var postH     = 22;
-        var railH     = 5;
-        var postGap   = 32;
-
-        ctx.fillStyle = '#795548'; // brown wood
-        // Top rail
-        ctx.fillRect(0, fenceY, cw, railH);
-        // Bottom rail
-        ctx.fillRect(0, fenceY + 12, cw, railH);
-        // Fence posts
-        for (var px = 0; px < cw; px += postGap) {
-          ctx.fillRect(px, fenceY - 4, postW, postH);
-        }
-
-        // ---- Gravestones ----
-        var stones = [
-          { x: 60,  w: 26, h: 44, style: 'round' },
-          { x: 155, w: 22, h: 50, style: 'cross' },
-          { x: 265, w: 30, h: 42, style: 'rect'  },
-          { x: 380, w: 24, h: 54, style: 'cross' },
-          { x: 480, w: 28, h: 40, style: 'round' },
-          { x: 570, w: 32, h: 44, style: 'rect'  },
-          { x: 670, w: 22, h: 52, style: 'cross' },
-          { x: 750, w: 26, h: 42, style: 'round' }
-        ];
-
-        // Stones sit on top of the grass, touching the top of the grass strip
-        var stoneBaseY = grassY + 4; // slightly embedded in the grass
-
-        for (var si = 0; si < stones.length; si++) {
-          var s = stones[si];
-          this.drawGravestone(s.x, stoneBaseY, s.w, s.h, s.style);
         }
       };
 
@@ -1039,6 +907,8 @@
         var halfGap    = pipePair.gapSize / 2;             // 75
         var topBottom  = pipePair.gapCenterY - halfGap;    // bottom y of top pipe body
         var botTop     = pipePair.gapCenterY + halfGap;    // top y of bottom pipe body
+        // Bottom pipes end at the ground level (grass top), not the canvas bottom
+        var groundY    = CONFIG.GROUND_Y;
 
         var bodyX      = pipePair.x;
         var bodyW      = pipePair.width;                   // 60
@@ -1056,8 +926,8 @@
         // --- Top pipe cap (at gap-facing / bottom end) ---
         ctx.fillRect(bodyX - capOffsetX, topBottom - capH, capW, capH);
 
-        // --- Bottom pipe body ---
-        ctx.fillRect(bodyX, botTop, bodyW, this._canvasHeight - botTop);
+        // --- Bottom pipe body (stops at ground, not canvas bottom) ---
+        ctx.fillRect(bodyX, botTop, bodyW, groundY - botTop);
 
         // --- Bottom pipe cap (at gap-facing / top end) ---
         ctx.fillRect(bodyX - capOffsetX, botTop, capW, capH);
@@ -1434,6 +1304,9 @@
           }
         }
 
+        // 1c. Advance ground scroll in sync with the pipes
+        this._renderer.groundScrollX += CONFIG.PIPES.SPEED * dt;
+
         // 2. Pipe scrolling / spawning
         this._pipeSystem.update(dt);
 
@@ -1525,6 +1398,7 @@
         this._renderer.restartPromptAlpha = 0;     // reset prompt alpha for next game-over
         this._renderer.startScreenAlpha   = 0;     // start screen never shows again after first play
         this._renderer.startScreenFading  = false;
+        this._renderer.groundScrollX      = 0;     // reset ground scroll
         this._state = GameState.PLAYING;
       };
 
