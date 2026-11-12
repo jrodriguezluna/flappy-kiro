@@ -23,7 +23,7 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
 
 - [x] 2. Create HTML structure and configuration constants
   - [x] 2.1 Create index.html with HTML structure, canvas element, responsive CSS, and CONFIG constants
-    - Create HTML boilerplate with `<canvas id="gameCanvas" width="800" height="600">` and references to `assets/ghosty.png`, `assets/jump.wav`, `assets/game_over.wav`
+    - Create HTML boilerplate with `<canvas id="gameCanvas" width="800" height="600">` and references to `assets/ghosty.png`, `assets/jump.wav`, `assets/point.wav`, `assets/game_over.wav`
     - Add CSS for responsive canvas scaling: canvas scales via CSS width/height to fit viewport while preserving 800:600 (4:3) aspect ratio, internal resolution stays 800x600
     - Define `CONFIG` object inline: canvas dimensions (800x600), ghost params (x=400, y=300, 40x40), physics (GRAVITY=900, JUMP_IMPULSE=-350, MAX_FALL_SPEED=700), pipe params (width=60, capWidth=68, capHeight=20, gapSize=150, gapMinY=75, gapMaxY=225, speed=120, spawnInterval=1.5), storage key "flappyKiroHighScore", cloud positions
     - Define `GameState` enum: START, PLAYING, GAME_OVER
@@ -111,14 +111,15 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
 
 - [x] 7. Implement AudioSystem module (sound playback)
   - [x] 7.1 Implement AudioSystem class inline in index.html
-    - Constructor: create `Audio` objects for jump and game over sounds from asset paths
+    - Constructor: create `Audio` objects for jump, point, and game over sounds from asset paths
     - `playJump()`: reset `currentTime = 0`, call `play()` in try/catch
+    - `playPoint()`: reset `currentTime = 0`, call `play()` in try/catch
     - `playGameOver()`: reset `currentTime = 0`, call `play()` in try/catch
     - All play failures silently caught: no crash, no state change, no error message
-    - _Requirements: 6.1, 6.2, 6.3_
+    - _Requirements: 6.1, 6.2, 6.3, 6.4_
   - [ ]* 7.2 Write property test for audio failure resilience
     - **Property 12: Audio failure resilience**
-    - **Validates: Requirements 6.3**
+    - **Validates: Requirements 6.4**
     - If AudioSystem.play() throws, GameEngine catches error and continues; state, score, physics unaffected
 
 - [x] 8. Implement Renderer module (canvas drawing)
@@ -150,7 +151,7 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - Constructor: store canvas and ctx, create subsystem instances (Ghost, PipeSystem, CollisionSystem, ScoreSystem, AudioSystem, Renderer), set state to START, initialize lastTime for delta calculation
     - `start()`: attach event listeners (keydown for Space, click, touchstart), begin requestAnimationFrame loop
     - `handleInput()`: route based on state — START: transition to PLAYING + applyJump; PLAYING: applyJump + playJump sound; GAME_OVER: reset() + transition to PLAYING + applyJump
-    - `update(dt)`: when PLAYING — update Ghost, update PipeSystem, check collisions via CollisionSystem, check boundaries, update score via ScoreSystem.checkPipePassed, transition to GAME_OVER on collision/boundary hit
+    - `update(dt)`: when PLAYING — update Ghost, update PipeSystem, check collisions via CollisionSystem, check boundaries, update score via ScoreSystem.checkPipePassed (call AudioSystem.playPoint() when a pipe is passed), transition to GAME_OVER on collision/boundary hit
     - `render()`: delegate to Renderer.render() with current state, ghost, pipes, scores
     - `transitionTo(newState)`: update state, trigger side effects (on GAME_OVER: call ScoreSystem.updateHighScore() + AudioSystem.playGameOver())
     - `reset()`: call ScoreSystem.reset(), PipeSystem.reset(), Ghost.reset(), set state to PLAYING
@@ -163,8 +164,8 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
 
 - [x] 11. Implement asset loading and initialization
   - [x] 11.1 Implement asset loading with error handling and GameEngine start inline in index.html
-    - Load `assets/ghosty.png` as `Image`, `assets/jump.wav` and `assets/game_over.wav` as `Audio` objects
-    - Track loading progress with a counter; only proceed when all three assets loaded (onload/oncanplaythrough)
+    - Load `assets/ghosty.png` as `Image`, `assets/jump.wav`, `assets/point.wav`, and `assets/game_over.wav` as `Audio` objects
+    - Track loading progress with a counter; only proceed when all four assets loaded (onload/oncanplaythrough)
     - If any asset fails (onerror): display error message on canvas ("Failed to load game assets. Please refresh the page."), halt initialization (no game loop starts)
     - On successful load: create GameEngine instance, call `start()`
     - _Requirements: 1.1, 1.2, 1.3_
@@ -203,12 +204,35 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     - Test START → PLAYING transition on jump input
     - Test localStorage write on high score update (mocked localStorage)
     - Test audio playback triggered on jump event (mocked Audio)
+    - Test audio playback triggered on pipe-passed/point event (mocked Audio)
     - Test audio playback triggered on game over event (mocked Audio)
     - Test audio failure does not crash the game or change state
     - _Requirements: 5.4, 6.1, 6.2, 6.3, 7.1-7.4_
 
 - [ ] 15. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 16. Death flash effect (Nice-to-Have)
+  - [x] 16.1 Implement white flash overlay on game over transition
+    - Add `flashAlpha` state variable (0.0–1.0) to Renderer; initialized to `0` during normal play
+    - When GameEngine transitions to GAME_OVER, set `flashAlpha = 1.0` and enter a new `DYING` sub-phase
+    - Each frame while `flashAlpha > 0`: draw white `fillRect` over full canvas using `globalAlpha = flashAlpha`, then decrement `flashAlpha` by `FLASH_FADE_RATE * dt` (rate chosen so flash lasts ~400 ms)
+    - Block restart input while flash is active
+    - When `flashAlpha` reaches 0, proceed to show the GAME_OVER screen (or trigger death animation if implemented)
+    - Define `CONFIG.FLASH_FADE_RATE` constant (e.g., `2.5` for ~400 ms duration)
+    - _Requirements: 11.1, 11.2, 11.3, 11.5_
+
+- [x] 17. Death animation (Nice-to-Have)
+  - [x] 17.1 Implement ghost fly-out animation on game over
+    - Add `isDying`, `dyingOpacity`, and `dyingVelocityY` fields to Ghost (or manage in GameEngine)
+    - After the death flash completes (`flashAlpha === 0`): set `ghost.isDying = true`, `ghost.dyingOpacity = 1.0`, `ghost.dyingVelocityY = -200` (px/s constant upward)
+    - Each frame while `isDying`: update `ghost.y += ghost.dyingVelocityY * dt` and `ghost.dyingOpacity -= FADE_RATE * dt`; clamp to 0
+    - In `Renderer.drawGhost()`: when `isDying`, apply `ctx.globalAlpha = ghost.dyingOpacity` before drawing sprite, restore after
+    - Simultaneously fade in GAME_OVER title: increment `gameOverTitleAlpha` from 0 to 1 over the same duration
+    - In `Renderer.drawGameOverScreen()`: use `gameOverTitleAlpha` for title opacity; show restart prompt only when `isDying === false`
+    - Animation ends when `ghost.y + ghost.height < 0` or `ghost.dyingOpacity <= 0`; set `isDying = false` and unlock restart input
+    - Animation must complete within 1.5 seconds (`CONFIG.DEATH_ANIM_FADE_RATE` tuned accordingly)
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 11.4_
 
 ## Notes
 
@@ -247,7 +271,9 @@ Property-based tests using `fast-check` validate the 14 correctness properties f
     { "id": 16, "tasks": ["10.2"] },
     { "id": 17, "tasks": ["11.2"] },
     { "id": 18, "tasks": ["12.2"] },
-    { "id": 19, "tasks": ["14.2"] }
+    { "id": 19, "tasks": ["14.2"] },
+    { "id": 20, "tasks": ["16.1"] },
+    { "id": 21, "tasks": ["17.1"] }
   ]
 }
 ```

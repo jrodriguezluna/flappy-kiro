@@ -11,7 +11,7 @@ Flappy Kiro is a browser-based endless scroller game inspired by the classic Fla
 - **Pipe_System**: The subsystem responsible for generating, moving, and rendering pipe obstacles.
 - **Collision_System**: The subsystem that detects intersections between the Ghost and pipes or canvas boundaries.
 - **Score_System**: The subsystem that tracks the current score, high score, and persists the high score to localStorage.
-- **Audio_System**: The subsystem that plays sound effects using `assets/jump.wav` and `assets/game_over.wav`.
+- **Audio_System**: The subsystem that plays sound effects using `assets/jump.wav`, `assets/point.wav`, and `assets/game_over.wav`.
 - **Renderer**: The subsystem that draws all visual elements on the HTML5 Canvas.
 - **Pipe_Pair**: A pair of pipes (one from the top, one from the bottom) with a gap between them that the Ghost must pass through.
 - **START state**: The initial state showing instructions before the game begins.
@@ -79,13 +79,14 @@ Flappy Kiro is a browser-based endless scroller game inspired by the classic Fla
 
 ### Requirement 6: Audio System
 
-**User Story:** As a player, I want sound effects for jumping and game over, so that the game provides audio feedback.
+**User Story:** As a player, I want sound effects for jumping, scoring, and game over, so that the game provides audio feedback.
 
 #### Acceptance Criteria
 
 1. WHILE the game is NOT in the GAME_OVER state, WHEN the player triggers a jump action, THE Audio_System SHALL play the jump sound effect
-2. WHEN the Game_Engine transitions to the GAME_OVER state, THE Audio_System SHALL play the game over sound effect
-3. IF the Audio_System fails to play a sound effect, THE Game_Engine SHALL continue operating normally without interruption
+2. WHEN the Score_System increments the current score (i.e., the Ghost passes the center of a Pipe_Pair for the first time), THE Audio_System SHALL play the point sound effect (`assets/point.wav`)
+3. WHEN the Game_Engine transitions to the GAME_OVER state, THE Audio_System SHALL play the game over sound effect
+4. IF the Audio_System fails to play a sound effect, THE Game_Engine SHALL continue operating normally without interruption
 
 ### Requirement 7: Game State Management
 
@@ -110,6 +111,29 @@ Flappy Kiro is a browser-based endless scroller game inspired by the classic Fla
 4. THE Renderer SHALL draw each pipe with a green body and a green cap segment wider than the body at the gap-facing end
 5. THE Renderer SHALL draw a dark score bar at the bottom of the canvas displaying "Score: X | High: Y" where X is the current score and Y is the high score
 6. THE Renderer SHALL draw visual elements in the following z-order: background first, then clouds, then pipes, then Ghost, then score bar on top of all other elements
+
+### Requirement 10: Death Animation (Nice-to-Have)
+
+**User Story:** As a player, I want to see the ghost fly away when it dies, so that the death feels dramatic and satisfying.
+
+#### Acceptance Criteria
+
+1. WHEN the Game_Engine transitions to the GAME_OVER state due to a pipe collision or boundary hit, THE Renderer SHALL begin a death animation in which the Ghost ascends vertically from its death position toward the top of the canvas while fading out (decreasing opacity)
+2. WHILE the death animation is playing, THE Game_Engine SHALL NOT accept restart input
+3. WHEN the Ghost's death animation completes (Ghost fully off-screen or opacity reaches zero), THE Renderer SHALL display the GAME_OVER screen (title and restart prompt) in its final static state
+4. The death animation SHALL last no more than 1.5 seconds
+
+### Requirement 11: Death Flash Effect (Nice-to-Have)
+
+**User Story:** As a player, I want a brief white flash when I die, so that the collision impact feels immediate and punchy.
+
+#### Acceptance Criteria
+
+1. WHEN the Game_Engine transitions to the GAME_OVER state, THE Renderer SHALL immediately overlay a white flash that covers the full canvas area
+2. THE white flash SHALL fade out within less than one second (approximately 300–500 ms)
+3. THE white flash SHALL start and end BEFORE the Ghost's death animation begins moving
+4. WHEN the white flash ends, the Ghost death animation (Requirement 10) SHALL begin simultaneously with the GAME_OVER title fading in
+5. IF the death animation feature (Requirement 10) is not implemented, the white flash SHALL transition directly to the static GAME_OVER screen once it ends
 
 ### Requirement 9: Browser Compatibility and Independence
 

@@ -240,6 +240,44 @@
         "chatSessionId": "sess_f77c2ec9-d9cd-40db-a611-d7ce691e0af5",
         "timestamp": 1794436455151
       }
+    ],
+    "16.1 Implement white flash overlay on game over transition": [
+      {
+        "executionId": "beef741b-4a99-403f-9a81-b0417fb48878",
+        "chatSessionId": "sess_ed11efbf-21f5-49ce-bda2-56250deba06c",
+        "timestamp": 1794443305843
+      },
+      {
+        "executionId": "beef741b-4a99-403f-9a81-b0417fb48878",
+        "chatSessionId": "sess_ed11efbf-21f5-49ce-bda2-56250deba06c",
+        "timestamp": 1794443703460
+      }
+    ],
+    "16. Death flash effect (Nice-to-Have)": [
+      {
+        "executionId": "beef741b-4a99-403f-9a81-b0417fb48878",
+        "chatSessionId": "sess_ed11efbf-21f5-49ce-bda2-56250deba06c",
+        "timestamp": 1794443703565
+      }
+    ],
+    "17.1 Implement ghost fly-out animation on game over": [
+      {
+        "executionId": "d49ff5ae-5753-4c54-87c2-69593a3be9a4",
+        "chatSessionId": "sess_6018137c-3ae6-4cc0-8991-8329df17eae4",
+        "timestamp": 1794443770494
+      },
+      {
+        "executionId": "d49ff5ae-5753-4c54-87c2-69593a3be9a4",
+        "chatSessionId": "sess_6018137c-3ae6-4cc0-8991-8329df17eae4",
+        "timestamp": 1794443891322
+      }
+    ],
+    "17. Death animation (Nice-to-Have)": [
+      {
+        "executionId": "d49ff5ae-5753-4c54-87c2-69593a3be9a4",
+        "chatSessionId": "sess_6018137c-3ae6-4cc0-8991-8329df17eae4",
+        "timestamp": 1794443891456
+      }
     ]
   }
 }

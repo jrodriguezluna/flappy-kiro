@@ -35,6 +35,7 @@ graph TB
     subgraph "Local Asset Files"
         GP[assets/ghosty.png]
         JW[assets/jump.wav]
+        PW[assets/point.wav]
         GOW[assets/game_over.wav]
     end
 
@@ -53,6 +54,7 @@ graph TB
     R -->|draws to| CV
     R -->|draws sprite from| GP
     AS -->|plays| JW
+    AS -->|plays| PW
     AS -->|plays| GOW
     SS -->|persists| LS
     GE -->|schedules frames| RAF
@@ -110,6 +112,9 @@ sequenceDiagram
         PS->>PS: spawn new pipe if interval elapsed
         GE->>CS: checkCollisions(Ghost, pipes)
         GE->>SS: updateScore(Ghost, pipes)
+        alt Pipe passed (score incremented)
+            GE->>AudioSystem: playPointSound()
+        end
         alt Collision or boundary hit
             GE->>GE: transition to GAME_OVER
             GE->>SS: updateHighScore()
@@ -234,8 +239,9 @@ Wraps `HTMLAudioElement` objects and handles playback failures gracefully.
 
 ```javascript
 class AudioSystem {
-  constructor(jumpSrc, gameOverSrc)
+  constructor(jumpSrc, pointSrc, gameOverSrc)
   playJump()           // plays jump sound
+  playPoint()          // plays point/score sound
   playGameOver()       // plays game over sound
   // Audio failures are caught and silently ignored
 }
@@ -417,9 +423,9 @@ const CONFIG = {
 
 ### Property 12: Audio failure resilience
 
-*For any* game state, if `AudioSystem.play()` throws an error (due to missing assets, browser restrictions, or other failures), the GameEngine catches the error and continues operating without interruption. The game state, score, and physics are unaffected by audio failures.
+*For any* game state, if `AudioSystem.play()` throws an error (due to missing assets, browser restrictions, or other failures), the GameEngine catches the error and continues operating without interruption. The game state, score, and physics are unaffected by audio failures. This applies to all three sound effects: jump, point, and game over.
 
-**Validates: Requirements 6.3**
+**Validates: Requirements 6.4**
 
 ### Property 13: Game over reset invariant
 
@@ -468,6 +474,49 @@ If the browser tab is backgrounded and `requestAnimationFrame` pauses:
 If the stored high score is not a valid non-negative integer:
 - `NaN`, `undefined`, `null`, negative numbers, and non-numeric strings all result in a default high score of `0`
 - The invalid value is not overwritten until a new valid high score is achieved through gameplay
+
+## Nice-to-Have Visual Effects
+
+The following effects are optional enhancements. They share a single sequenced timeline triggered at game-over:
+
+```
+Frame 0 ──────────── ~400ms ─────────── ~400ms + 1500ms
+│                        │                        │
+│  White flash           │  Ghost fly-out          │
+│  (full canvas overlay) │  (ascend + fade)        │
+│  fades from 1 → 0      │                         │
+│                        │  GAME_OVER title         │
+│                        │  fades in simultaneously │
+└────────────────────────┴─────────────────────────┘
+```
+
+### Death Flash Effect (Requirement 11)
+
+When the game transitions to GAME_OVER, the Renderer overlays a white rectangle covering the full canvas at full opacity (`alpha = 1.0`). Over approximately 300–500 ms, the alpha decreases to 0 (using `globalAlpha` or a rgba fill). The ghost remains stationary during the flash. No restart input is accepted during this phase.
+
+**Renderer additions:**
+- `flashAlpha`: number (0.0–1.0), initialized to 1.0 on game-over
+- `drawFlash()`: fills canvas with `rgba(255, 255, 255, flashAlpha)`; called after all other layers when `flashAlpha > 0`
+- Driven by `flashAlpha -= FLASH_FADE_RATE * dt` per frame until it reaches 0
+
+### Death Animation (Requirement 10)
+
+After the flash completes (`flashAlpha === 0`), the Ghost enters a fly-out phase: its Y position decreases (moves upward) at a fixed speed while its opacity decreases from 1.0 to 0.0. Simultaneously, the GAME_OVER screen title fades in (opacity from 0 to 1). The animation lasts at most 1.5 seconds.
+
+**Ghost model additions (animation state):**
+- `isDying`: boolean — true while fly-out animation runs
+- `dyingOpacity`: number (0.0–1.0) — controls sprite transparency
+- `dyingVelocityY`: constant upward speed (e.g., −200 px/s) during animation
+
+**Renderer additions:**
+- `drawGhost(ghost)`: when `ghost.isDying`, use `globalAlpha = ghost.dyingOpacity` before drawing sprite
+- `gameOverTitleAlpha`: number (0.0–1.0) — drives title fade-in during animation
+- `drawGameOverScreen()`: uses `gameOverTitleAlpha` for title opacity; buttons appear only after animation completes
+
+**GameEngine flow during death sequence:**
+1. Transition to GAME_OVER → start flash (`flashAlpha = 1.0`)
+2. Flash fades out → when `flashAlpha === 0`, activate `ghost.isDying = true`, start `gameOverTitleAlpha` increase
+3. Ghost flies off-screen or `dyingOpacity === 0` → lock animation complete, show full GAME_OVER screen and accept restart input
 
 ## Testing Strategy
 
@@ -550,7 +599,8 @@ The following acceptance criteria are tested with example-based or smoke tests r
 | 5.2 Score bar format | EXAMPLE | Specific string format |
 | 5.4 localStorage write | INTEGRATION | Side-effect, I/O operation |
 | 6.1 Jump sound | INTEGRATION | Side-effect, audio I/O |
-| 6.2 Game over sound | INTEGRATION | Side-effect, audio I/O |
+| 6.2 Point sound | INTEGRATION | Side-effect, audio I/O |
+| 6.3 Game over sound | INTEGRATION | Side-effect, audio I/O |
 | 7.1 State init | SMOKE | Fixed initial state |
 | 7.2 START→PLAYING | EXAMPLE | Single transition rule |
 | 8.1-8.6 Rendering | EXAMPLE | Visual output verification |

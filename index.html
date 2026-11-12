@@ -105,10 +105,18 @@
 
       STORAGE_KEY: 'flappyKiroHighScore',
 
+      FLASH_FADE_RATE: 2.5, // alpha units per second; 1.0 / 2.5 = 0.4 s flash duration
+
+      // Death animation constants (Requirement 10)
+      // Ghost flies upward at -200 px/s while fading out.
+      // DEATH_ANIM_FADE_RATE = 1 / max_duration_s. At 0.667 the animation
+      // completes in ~1.5 s even if the ghost hasn't left the canvas yet.
+      DEATH_ANIM_FADE_RATE: 0.667, // opacity units per second (1.0 / 1.5 s ≈ 0.667)
+
       CLOUDS: [
-        { x: 100, y: 80,  size: 40 },
-        { x: 500, y: 120, size: 30 },
-        { x: 300, y: 200, size: 25 }
+        { x: 110, y: 75,  size: 45 },
+        { x: 520, y: 115, size: 38 },
+        { x: 310, y: 195, size: 32 }
       ]
     };
 
@@ -145,6 +153,11 @@
         this.width     = this._initWidth;
         this.height    = this._initHeight;
         this.velocityY = 0;
+
+        // Death animation state (Requirement 10)
+        this.isDying        = false;  // true while fly-out animation runs
+        this.dyingOpacity   = 1.0;   // sprite transparency during fly-out (0–1)
+        this.dyingVelocityY = -200;  // constant upward speed during fly-out (px/s)
       }
 
       /** Return the ghost to its initial position with zero velocity. */
@@ -152,6 +165,9 @@
         this.x         = this._initX;
         this.y         = this._initY;
         this.velocityY = 0;
+        // Clear death animation state
+        this.isDying        = false;
+        this.dyingOpacity   = 1.0;
       };
 
       /**
@@ -186,12 +202,15 @@
 
       /**
        * Return the axis-aligned bounding box used for collision detection.
+       * The ghost sprite is drawn centered on (this.x, this.y), so the
+       * bounding box must also be offset by half width/height to match the
+       * visible sprite position.
        * @returns {{ x: number, y: number, width: number, height: number }}
        */
       Ghost.prototype.getBoundingBox = function () {
         return {
-          x:      this.x,
-          y:      this.y,
+          x:      this.x - this.width  / 2,
+          y:      this.y - this.height / 2,
           width:  this.width,
           height: this.height
         };
@@ -214,7 +233,7 @@
      * @param {number} gapCenterY - Vertical center of the gap (px from top).
      */
     var PipePair = (function () {
-      function PipePair(x, gapCenterY) {
+      function PipePair(x, gapCenterY, moving) {
         this.x          = x;
         this.gapCenterY = gapCenterY;
         this.gapSize    = CONFIG.PIPES.GAP_SIZE;    // 150
@@ -222,6 +241,12 @@
         this.capWidth   = CONFIG.PIPES.CAP_WIDTH;    // 68
         this.capHeight  = CONFIG.PIPES.CAP_HEIGHT;   // 20
         this.scored     = false;
+
+        // Tubos móviles: se mueven verticalmente de arriba a abajo
+        this.moving       = moving === true;
+        // Velocidad vertical aleatoria entre 60 y 110 px/s, dirección aleatoria
+        this.moveSpeed    = this.moving ? (60 + Math.random() * 50) : 0;
+        this.moveDir      = this.moving ? (Math.random() < 0.5 ? 1 : -1) : 0;
       }
       return PipePair;
     }());
@@ -240,8 +265,9 @@
       function PipeSystem(canvasWidth, canvasHeight) {
         this._canvasWidth  = canvasWidth  !== undefined ? canvasWidth  : CONFIG.CANVAS_WIDTH;
         this._canvasHeight = canvasHeight !== undefined ? canvasHeight : CONFIG.CANVAS_HEIGHT;
-        this._pipes       = [];
-        this._spawnTimer  = 0;
+        this._pipes        = [];
+        this._spawnTimer   = 0;
+        this._totalSpawned = 0; // contador total de pares generados (para activar tubos móviles)
       }
 
       /**
@@ -253,11 +279,28 @@
        * @param {number} dt - Elapsed time in seconds.
        */
       PipeSystem.prototype.update = function (dt) {
-        var speed = CONFIG.PIPES.SPEED; // 120 px/s
+        var speed      = CONFIG.PIPES.SPEED; // 120 px/s
+        var halfGap    = CONFIG.PIPES.GAP_SIZE / 2;
+        var minCenter  = CONFIG.PIPES.GAP_MIN_Y;  // 75 — límite superior del centro del hueco
+        var maxCenter  = CONFIG.PIPES.GAP_MAX_Y;  // 225 — límite inferior del centro del hueco
 
-        // 1. Move all pipes left
+        // 1. Move all pipes left; also update vertical position for moving pipes
         for (var i = 0; i < this._pipes.length; i++) {
-          this._pipes[i].x -= speed * dt;
+          var pipe = this._pipes[i];
+          pipe.x -= speed * dt;
+
+          if (pipe.moving) {
+            pipe.gapCenterY += pipe.moveDir * pipe.moveSpeed * dt;
+
+            // Rebotar en los límites para que el hueco no salga del área jugable
+            if (pipe.gapCenterY < minCenter) {
+              pipe.gapCenterY = minCenter;
+              pipe.moveDir    = 1;
+            } else if (pipe.gapCenterY > maxCenter) {
+              pipe.gapCenterY = maxCenter;
+              pipe.moveDir    = -1;
+            }
+          }
         }
 
         // 2. Remove pipes whose right edge has passed the left canvas boundary
@@ -283,7 +326,11 @@
         // Random in [minY, maxY] inclusive
         var gapCenterY = minY + Math.random() * (maxY - minY);
 
-        this._pipes.push(new PipePair(this._canvasWidth, gapCenterY));
+        // A partir del tubo 15, aproximadamente 1 de cada 3 pares es móvil
+        this._totalSpawned += 1;
+        var isMoving = this._totalSpawned > 15 && (this._totalSpawned % 3 === 0);
+
+        this._pipes.push(new PipePair(this._canvasWidth, gapCenterY, isMoving));
         this._spawnTimer = 0;
       };
 
@@ -299,8 +346,9 @@
        * Clear all active pipes and reset the spawn timer (used on game restart).
        */
       PipeSystem.prototype.reset = function () {
-        this._pipes      = [];
-        this._spawnTimer = 0;
+        this._pipes        = [];
+        this._spawnTimer   = 0;
+        this._totalSpawned = 0;
       };
 
       return PipeSystem;
@@ -355,19 +403,26 @@
           var topBottom  = pipe.gapCenterY - halfGap; // bottom edge of top segment
           var botTop     = pipe.gapCenterY + halfGap; // top edge of bottom segment
 
+          // Use capWidth for collision so it matches the visible pipe cap.
+          // The cap is centered on the body, so it extends (capWidth-width)/2
+          // pixels on each side. We use capWidth for the full collision width
+          // and shift x left by that same offset.
+          var collisionWidth  = pipe.capWidth  !== undefined ? pipe.capWidth : pipe.width;
+          var capOffsetX      = (collisionWidth - pipe.width) / 2;
+
           // Top pipe segment (from canvas top down to the gap)
           var topBox = {
-            x:      pipe.x,
+            x:      pipe.x - capOffsetX,
             y:      0,
-            width:  pipe.width,
+            width:  collisionWidth,
             height: topBottom
           };
 
           // Bottom pipe segment (from gap bottom down to canvas bottom)
           var botBox = {
-            x:      pipe.x,
+            x:      pipe.x - capOffsetX,
             y:      botTop,
-            width:  pipe.width,
+            width:  collisionWidth,
             height: canvasHeight - botTop
           };
 
@@ -506,16 +561,17 @@
 
     // -----------------------------------------------------------------
     // 7. AudioSystem — sound playback with graceful failure handling
-    //    Requirements: 6.1, 6.2, 6.3
+    //    Requirements: 6.1, 6.2, 6.3, 6.4
     // -----------------------------------------------------------------
     var AudioSystem = (function () {
       /**
        * @param {string} jumpSrc     - Path to the jump sound asset.
        * @param {string} gameOverSrc - Path to the game-over sound asset.
        */
-      function AudioSystem(jumpSrc, gameOverSrc) {
+      function AudioSystem(jumpSrc, pointSrc, gameOverSrc) {
         this._jumpAudio     = new Audio(jumpSrc);
         this._gameOverAudio = new Audio(gameOverSrc);
+        this._pointAudio     = new Audio(pointSrc);
       }
 
       /**
@@ -541,6 +597,23 @@
        *
        * Requirements: 6.2, 6.3 / Property 12
        */
+
+      /**
+       * Play the point (pipe-passed) sound effect.
+       * Resets playback to the start so back-to-back points play correctly.
+       * Any playback failure is silently caught — the game continues unaffected.
+       *
+       * Requirements: 6.3, 6.4 / Property 12
+       */
+      AudioSystem.prototype.playPoint = function () {
+        try {
+          this._pointAudio.currentTime = 0;
+          this._pointAudio.play();
+        } catch (e) {
+          // Browser blocked playback or asset failed — ignore silently.
+        }
+      };
+
       AudioSystem.prototype.playGameOver = function () {
         try {
           this._gameOverAudio.currentTime = 0;
@@ -572,6 +645,13 @@
         this._canvasWidth  = canvasWidth  !== undefined ? canvasWidth  : CONFIG.CANVAS_WIDTH;
         this._canvasHeight = canvasHeight !== undefined ? canvasHeight : CONFIG.CANVAS_HEIGHT;
         this._ghostImage   = ghostImage;
+
+        // Death flash effect state (Requirements 11.1–11.3, 11.5)
+        this.flashAlpha = 0;    // 0 = no flash; 1.0 = full white overlay
+        this.isDying    = false; // true while death flash is active (blocks restart)
+
+        // Death animation state (Requirement 10)
+        this.gameOverTitleAlpha = 0; // 0 = invisible; 1.0 = fully visible game-over title
       }
 
       /**
@@ -594,6 +674,9 @@
         // 2. Clouds (behind everything interactive)
         this.drawClouds();
 
+        // 2b. Graveyard scenery at the bottom
+        this.drawGraveyard();
+
         // 3. Pipes
         for (var i = 0; i < pipes.length; i++) {
           this.drawPipePair(pipes[i]);
@@ -609,7 +692,16 @@
         if (state === GameState.START) {
           this.drawStartScreen();
         } else if (state === GameState.GAME_OVER) {
-          this.drawGameOverScreen(currentScore, highScore);
+          // Show GAME_OVER screen only after the death flash has fully faded
+          if (!this.isDying) {
+            this.drawGameOverScreen(currentScore, highScore, ghost.isDying);
+          }
+        }
+
+        // 7. Death flash overlay — drawn last so it covers everything
+        //    Active while isDying is true (flashAlpha > 0).
+        if (this.flashAlpha > 0) {
+          this.drawFlash();
         }
       };
 
@@ -627,20 +719,285 @@
       };
 
       /**
-       * Draw decorative white clouds at fixed positions from CONFIG.CLOUDS.
-       * Each cloud is a simple white circle.
+       * Draw the white death-flash overlay at the current flashAlpha opacity.
+       * Called after all other layers so it covers the full canvas.
+       * Requirements: 11.1, 11.2
+       */
+      Renderer.prototype.drawFlash = function () {
+        var ctx = this._ctx;
+        ctx.save();
+        ctx.globalAlpha = this.flashAlpha;
+        ctx.fillStyle   = '#FFFFFF';
+        ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
+        ctx.restore();
+      };
+
+      /**
+       * Draw a single fluffy cloud composed of overlapping ellipses.
+       * @param {number} x    - Horizontal center of the cloud.
+       * @param {number} y    - Vertical center of the cloud.
+       * @param {number} size - Base radius that scales all cloud puffs.
+       */
+      Renderer.prototype.drawCloud = function (x, y, size) {
+        var ctx = this._ctx;
+        ctx.fillStyle = '#FFFFFF';
+
+        // Shadow / soft base layer for depth
+        ctx.fillStyle = 'rgba(220, 235, 255, 0.85)';
+        ctx.beginPath();
+        ctx.ellipse(x,            y + size * 0.15, size * 1.2, size * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Main white puffs
+        ctx.fillStyle = '#FFFFFF';
+
+        // Large center puff
+        ctx.beginPath();
+        ctx.ellipse(x, y, size * 0.9, size * 0.75, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Left puff
+        ctx.beginPath();
+        ctx.ellipse(x - size * 0.75, y + size * 0.15, size * 0.65, size * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Right puff
+        ctx.beginPath();
+        ctx.ellipse(x + size * 0.75, y + size * 0.15, size * 0.65, size * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Top-left mini puff
+        ctx.beginPath();
+        ctx.ellipse(x - size * 0.38, y - size * 0.4, size * 0.5, size * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Top-right mini puff
+        ctx.beginPath();
+        ctx.ellipse(x + size * 0.38, y - size * 0.3, size * 0.45, size * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      /**
+       * Draw decorative fluffy clouds at fixed positions from CONFIG.CLOUDS.
        * Requirements: 8.2
        */
       Renderer.prototype.drawClouds = function () {
-        var ctx    = this._ctx;
         var clouds = CONFIG.CLOUDS;
-
-        ctx.fillStyle = '#FFFFFF';
         for (var i = 0; i < clouds.length; i++) {
           var c = clouds[i];
+          this.drawCloud(c.x, c.y, c.size);
+        }
+      };
+
+      /**
+       * Draw a rounded-top gravestone with "RIP" text (classic style).
+       * @param {number} x  - Horizontal center.
+       * @param {number} y  - Bottom y.
+       * @param {number} w  - Width.
+       * @param {number} h  - Height.
+       */
+      Renderer.prototype.drawGravestoneRound = function (x, y, w, h) {
+        var ctx = this._ctx;
+        var r   = w / 2; // radius of the rounded top
+
+        // Body
+        ctx.fillStyle = '#9E9E9E';
+        ctx.beginPath();
+        ctx.rect(x - r, y - h + r, w, h - r);
+        ctx.fill();
+
+        // Rounded top
+        ctx.beginPath();
+        ctx.arc(x, y - h + r, r, Math.PI, 0);
+        ctx.fill();
+
+        // Left shadow strip
+        ctx.fillStyle = '#757575';
+        ctx.fillRect(x - r, y - h + r, w * 0.28, h - r);
+
+        // RIP text
+        ctx.fillStyle    = '#BDBDBD';
+        ctx.font         = 'bold ' + Math.floor(h * 0.22) + 'px monospace';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('RIP', x, y - h * 0.45);
+      };
+
+      /**
+       * Draw a flat-top rectangular gravestone with chiseled corners.
+       * @param {number} x  - Horizontal center.
+       * @param {number} y  - Bottom y.
+       * @param {number} w  - Width.
+       * @param {number} h  - Height.
+       */
+      Renderer.prototype.drawGravestoneRect = function (x, y, w, h) {
+        var ctx   = this._ctx;
+        var notch = w * 0.18; // small chamfer on top corners
+
+        // Main body with chamfered top corners
+        ctx.fillStyle = '#8D8D8D';
+        ctx.beginPath();
+        ctx.moveTo(x - w / 2 + notch, y - h);        // top-left after chamfer
+        ctx.lineTo(x + w / 2 - notch, y - h);        // top-right before chamfer
+        ctx.lineTo(x + w / 2,         y - h + notch);// right chamfer
+        ctx.lineTo(x + w / 2,         y);             // bottom-right
+        ctx.lineTo(x - w / 2,         y);             // bottom-left
+        ctx.lineTo(x - w / 2,         y - h + notch);// left chamfer
+        ctx.closePath();
+        ctx.fill();
+
+        // Left shadow
+        ctx.fillStyle = '#616161';
+        ctx.beginPath();
+        ctx.moveTo(x - w / 2,         y - h + notch);
+        ctx.lineTo(x - w / 2 + notch, y - h);
+        ctx.lineTo(x - w / 2 + notch + w * 0.22, y - h);
+        ctx.lineTo(x - w / 2 + w * 0.22,         y);
+        ctx.lineTo(x - w / 2,                     y);
+        ctx.closePath();
+        ctx.fill();
+
+        // Horizontal engraved line (decorative groove)
+        ctx.strokeStyle = '#616161';
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x - w / 2 + 4, y - h * 0.65);
+        ctx.lineTo(x + w / 2 - 4, y - h * 0.65);
+        ctx.stroke();
+
+        // "RIP" text below groove
+        ctx.fillStyle    = '#BDBDBD';
+        ctx.font         = 'bold ' + Math.floor(h * 0.2) + 'px monospace';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('RIP', x, y - h * 0.35);
+      };
+
+      /**
+       * Draw a gravestone topped with a cross.
+       * @param {number} x  - Horizontal center.
+       * @param {number} y  - Bottom y.
+       * @param {number} w  - Width of the stone base.
+       * @param {number} h  - Total height including cross.
+       */
+      Renderer.prototype.drawGravestoneCross = function (x, y, w, h) {
+        var ctx       = this._ctx;
+        var baseH     = h * 0.55;  // height of the rectangular stone base
+        var crossH    = h * 0.5;   // height of the cross above the base
+        var crossW    = w * 0.22;  // width of the cross vertical bar
+        var armW      = w * 0.75;  // width of the cross horizontal arm
+        var armH      = crossH * 0.28; // height of the cross horizontal arm
+        var armY      = y - baseH - crossH * 0.62; // y center of horizontal arm
+
+        // Stone base (flat-top rectangle)
+        ctx.fillStyle = '#8D8D8D';
+        ctx.fillRect(x - w / 2, y - baseH, w, baseH);
+
+        // Left shadow on base
+        ctx.fillStyle = '#616161';
+        ctx.fillRect(x - w / 2, y - baseH, w * 0.25, baseH);
+
+        // Cross vertical bar
+        ctx.fillStyle = '#9E9E9E';
+        ctx.fillRect(x - crossW / 2, y - baseH - crossH, crossW, crossH);
+
+        // Cross horizontal arm
+        ctx.fillRect(x - armW / 2, armY - armH / 2, armW, armH);
+
+        // Subtle shadow on left of cross vertical bar
+        ctx.fillStyle = '#757575';
+        ctx.fillRect(x - crossW / 2, y - baseH - crossH, crossW * 0.35, crossH);
+
+        // Subtle shadow on top-left of horizontal arm
+        ctx.fillRect(x - armW / 2, armY - armH / 2, armW * 0.35, armH);
+      };
+
+      /**
+       * Draw a gravestone using one of three styles based on the `style` param.
+       * @param {number} x      - Horizontal center.
+       * @param {number} y      - Bottom y.
+       * @param {number} w      - Width.
+       * @param {number} h      - Height.
+       * @param {string} style  - 'round' | 'rect' | 'cross'
+       */
+      Renderer.prototype.drawGravestone = function (x, y, w, h, style) {
+        if (style === 'rect') {
+          this.drawGravestoneRect(x, y, w, h);
+        } else if (style === 'cross') {
+          this.drawGravestoneCross(x, y, w, h);
+        } else {
+          this.drawGravestoneRound(x, y, w, h);
+        }
+      };
+
+      /**
+       * Draw the graveyard scenery at the bottom of the canvas.
+       * Renders a grass strip, a wooden fence, and several gravestones.
+       */
+      Renderer.prototype.drawGraveyard = function () {
+        var ctx    = this._ctx;
+        var cw     = this._canvasWidth;   // 800
+        var ch     = this._canvasHeight;  // 600
+        var scoreBarH = 36; // must match drawScoreBar barHeight
+
+        // ---- Grass strip ----
+        // Drawn just above the score bar
+        var grassH = 48;
+        var grassY = ch - scoreBarH - grassH;
+
+        // Dark grass base
+        ctx.fillStyle = '#2E7D32';
+        ctx.fillRect(0, grassY, cw, grassH);
+
+        // Lighter top edge for a lawn look
+        ctx.fillStyle = '#388E3C';
+        ctx.fillRect(0, grassY, cw, 10);
+
+        // Individual grass blades (simple triangles sprinkled across)
+        ctx.fillStyle = '#4CAF50';
+        for (var bx = 6; bx < cw; bx += 14) {
           ctx.beginPath();
-          ctx.arc(c.x, c.y, c.size, 0, Math.PI * 2);
+          ctx.moveTo(bx,     grassY + 10);
+          ctx.lineTo(bx + 5, grassY);
+          ctx.lineTo(bx + 10, grassY + 10);
           ctx.fill();
+        }
+
+        // ---- Wooden fence ----
+        var fenceY    = grassY - 14;
+        var postW     = 8;
+        var postH     = 22;
+        var railH     = 5;
+        var postGap   = 32;
+
+        ctx.fillStyle = '#795548'; // brown wood
+        // Top rail
+        ctx.fillRect(0, fenceY, cw, railH);
+        // Bottom rail
+        ctx.fillRect(0, fenceY + 12, cw, railH);
+        // Fence posts
+        for (var px = 0; px < cw; px += postGap) {
+          ctx.fillRect(px, fenceY - 4, postW, postH);
+        }
+
+        // ---- Gravestones ----
+        var stones = [
+          { x: 60,  w: 26, h: 44, style: 'round' },
+          { x: 155, w: 22, h: 50, style: 'cross' },
+          { x: 265, w: 30, h: 42, style: 'rect'  },
+          { x: 380, w: 24, h: 54, style: 'cross' },
+          { x: 480, w: 28, h: 40, style: 'round' },
+          { x: 570, w: 32, h: 44, style: 'rect'  },
+          { x: 670, w: 22, h: 52, style: 'cross' },
+          { x: 750, w: 26, h: 42, style: 'round' }
+        ];
+
+        // Stones sit on top of the grass, touching the top of the grass strip
+        var stoneBaseY = grassY + 4; // slightly embedded in the grass
+
+        for (var si = 0; si < stones.length; si++) {
+          var s = stones[si];
+          this.drawGravestone(s.x, stoneBaseY, s.w, s.h, s.style);
         }
       };
 
@@ -673,7 +1030,8 @@
         // Horizontal offset to centre the wider cap over the body
         var capOffsetX = (capW - bodyW) / 2;               // 4
 
-        ctx.fillStyle = '#5DB85D'; // pipe green
+        // Tubos móviles en naranja; tubos normales en verde
+        ctx.fillStyle = pipePair.moving ? '#E8720C' : '#5DB85D';
 
         // --- Top pipe body ---
         ctx.fillRect(bodyX, 0, bodyW, topBottom);
@@ -691,18 +1049,26 @@
       /**
        * Draw the Ghost sprite at its current position.
        * Requirements: 8.3
+       * When ghost.isDying, applies dyingOpacity as globalAlpha so the sprite
+       * fades out during the fly-out animation (Requirement 10.2).
        *
        * @param {Ghost} ghost
        */
       Renderer.prototype.drawGhost = function (ghost) {
         if (this._ghostImage) {
-          this._ctx.drawImage(
+          var ctx = this._ctx;
+          ctx.save();
+          if (ghost.isDying) {
+            ctx.globalAlpha = ghost.dyingOpacity;
+          }
+          ctx.drawImage(
             this._ghostImage,
             ghost.x - ghost.width  / 2,  // centre the sprite on ghost.x
             ghost.y - ghost.height / 2,  // centre the sprite on ghost.y
             ghost.width,
             ghost.height
           );
+          ctx.restore();
         }
       };
 
@@ -760,37 +1126,49 @@
 
       /**
        * Draw the GAME_OVER state overlay: game over message and restart prompt.
-       * Requirements: 7.3
+       * Requirements: 7.3, 10.3, 10.4
        *
-       * @param {number} currentScore - Final score for this run.
-       * @param {number} highScore    - All-time high score.
+       * The title fades in via gameOverTitleAlpha (0→1) simultaneously with the
+       * ghost fly-out animation. The restart prompt is only shown once isDying
+       * on the ghost is false (animation complete — Requirement 10.4).
+       *
+       * @param {number}  currentScore - Final score for this run.
+       * @param {number}  highScore    - All-time high score.
+       * @param {boolean} ghostIsDying - Whether the fly-out animation is still running.
        */
-      Renderer.prototype.drawGameOverScreen = function (currentScore, highScore) {
+      Renderer.prototype.drawGameOverScreen = function (currentScore, highScore, ghostIsDying) {
         var ctx = this._ctx;
         var cx  = this._canvasWidth  / 2;  // 400
         var cy  = this._canvasHeight / 2;  // 300
 
         // Dark overlay panel
+        ctx.save();
         ctx.fillStyle = 'rgba(0, 0, 0, 0.60)';
         ctx.fillRect(cx - 200, cy - 70, 400, 150);
 
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
 
-        // "Game Over" title
+        // "Game Over" title — fades in from 0 → 1 via gameOverTitleAlpha
+        ctx.globalAlpha = this.gameOverTitleAlpha;
         ctx.fillStyle = '#FF4444';
         ctx.font      = 'bold 36px monospace';
         ctx.fillText('Game Over', cx, cy - 30);
 
-        // Final score line
+        // Final score line — same alpha as title
         ctx.fillStyle = '#FFFFFF';
         ctx.font      = 'bold 20px monospace';
         ctx.fillText('Score: ' + currentScore + ' | High: ' + highScore, cx, cy + 10);
 
-        // Restart prompt
-        ctx.fillStyle = '#CCCCCC';
-        ctx.font      = '16px monospace';
-        ctx.fillText('Press Space, Click, or Tap to restart', cx, cy + 45);
+        // Restart prompt — only shown once fly-out animation is complete
+        if (!ghostIsDying) {
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = '#CCCCCC';
+          ctx.font      = '16px monospace';
+          ctx.fillText('Press Space, Click, or Tap to restart', cx, cy + 45);
+        }
+
+        ctx.restore();
       };
 
       return Renderer;
@@ -808,9 +1186,10 @@
        * @param {HTMLCanvasElement}       canvas - The game canvas element.
        * @param {HTMLImageElement}        ghostImage - Loaded ghost sprite.
        * @param {string}                  jumpSrc    - Path to jump sound asset.
+       * @param {string}                  pointSrc   - Path to point sound asset.
        * @param {string}                  gameOverSrc - Path to game-over sound asset.
        */
-      function GameEngine(canvas, ghostImage, jumpSrc, gameOverSrc) {
+      function GameEngine(canvas, ghostImage, jumpSrc, pointSrc, gameOverSrc) {
         this._canvas   = canvas;
         this._ctx      = canvas.getContext('2d');
         this._lastTime = null;   // set when the loop first fires
@@ -823,6 +1202,7 @@
         this._score      = new ScoreSystem();
         this._audio      = new AudioSystem(
           jumpSrc     || 'assets/jump.wav',
+          pointSrc    || 'assets/point.wav',
           gameOverSrc || 'assets/game_over.wav'
         );
         this._renderer   = new Renderer(this._ctx, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT, ghostImage);
@@ -874,6 +1254,11 @@
           this._audio.playJump();
 
         } else if (this._state === GameState.GAME_OVER) {
+          // Block restart while death flash OR fly-out animation is still playing
+          // (Requirement 11.3, 10.4)
+          if (this._renderer.isDying || this._ghost.isDying) {
+            return;
+          }
           // Restart: reset everything, go straight to PLAYING, give initial jump
           this.reset();
           this._ghost.applyJump();
@@ -888,6 +1273,48 @@
        */
       GameEngine.prototype.update = function (dt) {
         if (this._state !== GameState.PLAYING) {
+          // Tick the death flash even while in GAME_OVER (Requirement 11.2)
+          if (this._state === GameState.GAME_OVER && this._renderer.isDying) {
+            this._renderer.flashAlpha -= CONFIG.FLASH_FADE_RATE * dt;
+            if (this._renderer.flashAlpha <= 0) {
+              this._renderer.flashAlpha = 0;
+              this._renderer.isDying    = false; // flash complete — unlock restart input
+
+              // Flash is done: begin ghost fly-out animation (Requirement 10.1)
+              this._ghost.isDying      = true;
+              this._ghost.dyingOpacity = 1.0;
+              // Reset title alpha so it fades in from scratch
+              this._renderer.gameOverTitleAlpha = 0;
+            }
+          }
+
+          // Tick the ghost fly-out animation (Requirement 10.2, 10.3)
+          if (this._state === GameState.GAME_OVER && this._ghost.isDying) {
+            // Move ghost upward
+            this._ghost.y += this._ghost.dyingVelocityY * dt;
+
+            // Fade ghost out
+            this._ghost.dyingOpacity -= CONFIG.DEATH_ANIM_FADE_RATE * dt;
+            if (this._ghost.dyingOpacity < 0) {
+              this._ghost.dyingOpacity = 0;
+            }
+
+            // Fade game-over title in simultaneously
+            this._renderer.gameOverTitleAlpha += CONFIG.DEATH_ANIM_FADE_RATE * dt;
+            if (this._renderer.gameOverTitleAlpha > 1) {
+              this._renderer.gameOverTitleAlpha = 1;
+            }
+
+            // End condition: ghost has flown off-screen top, or opacity reached 0
+            // (Requirement 10.3 — animation must complete within 1.5 s)
+            var ghostBox = this._ghost.getBoundingBox();
+            if (ghostBox.y + ghostBox.height < 0 || this._ghost.dyingOpacity <= 0) {
+              this._ghost.isDying               = false;
+              this._ghost.dyingOpacity          = 0;
+              this._renderer.gameOverTitleAlpha = 1; // ensure title is fully visible
+            }
+          }
+
           return;
         }
 
@@ -915,7 +1342,9 @@
 
         // 5. Scoring: check every active pipe (Requirement 5.1)
         for (var i = 0; i < pipes.length; i++) {
-          this._score.checkPipePassed(this._ghost, pipes[i]);
+          if (this._score.checkPipePassed(this._ghost, pipes[i])) {
+            this._audio.playPoint();  // point sound on pipe pass (Req 6.4)
+          }
         }
       };
 
@@ -948,6 +1377,13 @@
         if (newState === GameState.GAME_OVER) {
           this._score.updateHighScore();    // persist if new record (Req 5.3, 5.4)
           this._audio.playGameOver();       // sound effect (Req 6.2)
+          // Activate death flash (Requirements 11.1–11.3)
+          this._renderer.flashAlpha = 1.0;
+          this._renderer.isDying    = true;
+          // Reset fly-out state so it's clean for the upcoming animation sequence
+          this._ghost.isDying               = false;
+          this._ghost.dyingOpacity          = 1.0;
+          this._renderer.gameOverTitleAlpha = 0;
         }
       };
 
@@ -959,7 +1395,10 @@
       GameEngine.prototype.reset = function () {
         this._score.reset();      // current score → 0
         this._pipeSystem.reset(); // clear all pipes
-        this._ghost.reset();      // position (400, 300), velocity 0
+        this._ghost.reset();      // position (400, 300), velocity 0, isDying cleared
+        this._renderer.flashAlpha         = 0;     // clear any lingering flash
+        this._renderer.isDying            = false;
+        this._renderer.gameOverTitleAlpha = 0;     // reset title alpha for next game-over
         this._state = GameState.PLAYING;
       };
 
@@ -1065,6 +1504,7 @@
             canvas,
             ghostImage,
             'assets/jump.wav',
+            'assets/point.wav',
             'assets/game_over.wav'
           );
           engine.start();
