@@ -26,7 +26,7 @@ Los documentos de especificación ya están generados: tú solo tienes que **eje
 | Ruta | Descripción |
 |---|---|
 | `.kiro/specs/flappy-kiro/` | Spec: requisitos, diseño y tareas (ya escritos) |
-| `assets/` | Sprite del fantasma y sonidos |
+| `assets/` | Sprite del fantasma, sonidos e iconos de servicios AWS |
 | `index.html` | El juego (lo crea Kiro al ejecutar las tareas) |
 | `package.json`, `test/` | Infraestructura de tests (la crea Kiro en la tarea 1) |
 
@@ -38,3 +38,5 @@ Los documentos de especificación ya están generados: tú solo tienes que **eje
 ## Licencia
 
 Ver `LICENCE.md`.
+
+Los iconos de servicios AWS provienen del [paquete oficial de iconos de arquitectura de AWS](https://aws.amazon.com/architecture/icons/) y se usan sin modificar.

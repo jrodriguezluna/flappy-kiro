@@ -102,7 +102,7 @@
         GAP_MAX_Y: 390,     // maximum gap center Y (adjusted so gap stays above ground floor)
         GAP_MAX_DELTA: 150, // max vertical shift of gap center between consecutive pipes (px)
         SPEED: 120,         // leftward scroll speed (px/s)
-        SPAWN_INTERVAL: 1.5 // time between new pipe pairs (seconds)
+        SPAWN_INTERVAL: 2 // time between new pipe pairs (seconds)
       },
 
       // Y position of the ground (top of the grass strip).
@@ -129,9 +129,27 @@
       DEATH_ANIM_FADE_RATE: 0.667, // opacity units per second (1.0 / 1.5 s ≈ 0.667)
 
       CLOUDS: [
-        { x: 110, y: 75,  size: 45 },
-        { x: 520, y: 115, size: 38 },
-        { x: 310, y: 195, size: 32 }
+        { x: 110, y: 85,  size: 43 },
+        { x: 520, y: 132, size: 38 },
+        { x: 315, y: 230, size: 32 }
+      ],
+
+      SERVICE_TILES: [
+        { x: 0,    size: 100, icon: 'ec2' },
+        { x: 116,  size: 132, icon: 'lambda' },
+        { x: 360,  size: 68,  icon: 'ecs' },
+        { x: 438,  size: 126, icon: 'eks' },
+        { x: 730,  size: 150, icon: 'lightsail' },
+        { x: 930,  size: 82,  icon: 's3' },
+        { x: 1022, size: 66,  icon: 'ebs' },
+        { x: 1098, size: 130, icon: 'efs' },
+        { x: 1390, size: 88,  icon: 'rds' },
+        { x: 1492, size: 138, icon: 'aurora' },
+        { x: 1800, size: 74,  icon: 'dynamodb' },
+        { x: 1888, size: 132, icon: 'elasticache' },
+        { x: 2220, size: 148, icon: 'vpc' },
+        { x: 2440, size: 108, icon: 'cloudfront' },
+        { x: 2628, size: 88,  icon: 'route53' }
       ]
     };
 
@@ -666,11 +684,12 @@
        * @param {number}                  canvasHeight - Internal canvas height (px).
        * @param {HTMLImageElement}        ghostImage   - Loaded ghost sprite image.
        */
-      function Renderer(ctx, canvasWidth, canvasHeight, ghostImage) {
+      function Renderer(ctx, canvasWidth, canvasHeight, ghostImage, serviceImages) {
         this._ctx          = ctx;
         this._canvasWidth  = canvasWidth  !== undefined ? canvasWidth  : CONFIG.CANVAS_WIDTH;
         this._canvasHeight = canvasHeight !== undefined ? canvasHeight : CONFIG.CANVAS_HEIGHT;
         this._ghostImage   = ghostImage;
+        this._serviceImages = serviceImages || {};
 
         // Death flash effect state (Requirements 11.1–11.3, 11.5)
         this.flashAlpha = 0;    // 0 = no flash; 1.0 = full white overlay
@@ -688,12 +707,13 @@
         // Ground scroll offset — advances at PIPES.SPEED so the grass
         // tiles move in sync with the pipes. Wraps at tile repeat width.
         this.groundScrollX = 0;
-      }
+        this.serviceTilesScrollX = 0;
+      };
 
       /**
        * Main render entry-point called once per frame.
        * Draws all visual elements in z-order (back to front):
-       *   background → clouds → pipes → ghost → score bar → state overlays
+       *   background → clouds → service tiles → pipes → ghost → score bar → state overlays
        *
        * Requirements: 8.6
        *
@@ -707,25 +727,28 @@
         // 1. Background (bottom-most layer)
         this.drawBackground();
 
-        // 2. Clouds (behind everything interactive)
+        // 2. Normal clouds
         this.drawClouds();
 
-        // 3. Pipes (drawn before ground so ground overlaps bottom of pipes)
+        // 3. AWS service icons at the ground, behind pipes
+        this.drawServiceTiles();
+
+        // 4. Pipes (drawn before ground so ground overlaps bottom of pipes)
         for (var i = 0; i < pipes.length; i++) {
           this.drawPipePair(pipes[i]);
         }
 
-        // 3b. Graveyard scenery at the bottom — drawn AFTER pipes so the
+        // 4b. Graveyard scenery at the bottom — drawn AFTER pipes so the
         //     grass/fence/stones always appear on top of the pipe bodies
         this.drawGraveyard();
 
-        // 4. Ghost sprite
+        // 5. Ghost sprite
         this.drawGhost(ghost);
 
-        // 5. Score bar (always on top of gameplay elements)
+        // 6. Score bar (always on top of gameplay elements)
         this.drawScoreBar(currentScore, highScore);
 
-        // 6. State-specific overlays (on top of everything)
+        // 7. State-specific overlays (on top of everything)
         if (state === GameState.START) {
           this.drawStartScreen(1.0);
         } else if (state === GameState.PLAYING && this.startScreenFading) {
@@ -738,7 +761,7 @@
           }
         }
 
-        // 7. Death flash overlay — drawn last so it covers everything
+        // 8. Death flash overlay — drawn last so it covers everything
         //    Active while isDying is true (flashAlpha > 0).
         if (this.flashAlpha > 0) {
           this.drawFlash();
@@ -776,6 +799,75 @@
         ctx.fillRect(0, groundY * 0.6, cw, groundY - groundY * 0.6);
       };
 
+      Renderer.prototype.drawServiceTiles = function () {
+        var ctx = this._ctx;
+        var tiles = CONFIG.SERVICE_TILES;
+        var repeatWidth = 2800;
+
+        ctx.save();
+        ctx.globalAlpha = 0.48;
+        ctx.imageSmoothingEnabled = false;
+
+        for (var i = 0; i < tiles.length; i++) {
+          var tile = tiles[i];
+          var x = this._canvasWidth + tile.x - this.serviceTilesScrollX;
+          while (x + tile.size < 0) {
+            x += repeatWidth;
+          }
+          if (x > this._canvasWidth) {
+            continue;
+          }
+
+          var icon = this._serviceImages[tile.icon];
+          var iconSize = Math.round(tile.size * 0.68);
+          if (icon && icon.complete && icon.naturalWidth > 0) {
+            var iconX = x + (tile.size - iconSize) / 2;
+            ctx.drawImage(icon, iconX, CONFIG.GROUND_Y - iconSize, iconSize, iconSize);
+          }
+        }
+
+        ctx.restore();
+      };
+
+      /**
+       * Draw a single fluffy background cloud.
+       * @param {number} x - Horizontal center of the cloud.
+       * @param {number} y - Vertical center of the cloud.
+       * @param {number} size - Base radius that scales all cloud puffs.
+       */
+      Renderer.prototype.drawCloud = function (x, y, size) {
+        var ctx = this._ctx;
+        ctx.fillStyle = 'rgba(220, 235, 255, 0.85)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + size * 0.15, size * 1.2, size * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.ellipse(x, y, size * 0.9, size * 0.75, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(x - size * 0.75, y + size * 0.15, size * 0.65, size * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(x + size * 0.75, y + size * 0.15, size * 0.65, size * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(x - size * 0.38, y - size * 0.4, size * 0.5, size * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(x + size * 0.38, y - size * 0.3, size * 0.45, size * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      Renderer.prototype.drawClouds = function () {
+        var clouds = CONFIG.CLOUDS;
+        for (var i = 0; i < clouds.length; i++) {
+          var cloud = clouds[i];
+          this.drawCloud(cloud.x, cloud.y, cloud.size);
+        }
+      };
+
       /**
        * Draw the white death-flash overlay at the current flashAlpha opacity.
        * Called after all other layers so it covers the full canvas.
@@ -788,63 +880,6 @@
         ctx.fillStyle   = '#FFFFFF';
         ctx.fillRect(0, 0, this._canvasWidth, this._canvasHeight);
         ctx.restore();
-      };
-
-      /**
-       * Draw a single fluffy cloud composed of overlapping ellipses.
-       * @param {number} x    - Horizontal center of the cloud.
-       * @param {number} y    - Vertical center of the cloud.
-       * @param {number} size - Base radius that scales all cloud puffs.
-       */
-      Renderer.prototype.drawCloud = function (x, y, size) {
-        var ctx = this._ctx;
-        ctx.fillStyle = '#FFFFFF';
-
-        // Shadow / soft base layer for depth
-        ctx.fillStyle = 'rgba(220, 235, 255, 0.85)';
-        ctx.beginPath();
-        ctx.ellipse(x,            y + size * 0.15, size * 1.2, size * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Main white puffs
-        ctx.fillStyle = '#FFFFFF';
-
-        // Large center puff
-        ctx.beginPath();
-        ctx.ellipse(x, y, size * 0.9, size * 0.75, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Left puff
-        ctx.beginPath();
-        ctx.ellipse(x - size * 0.75, y + size * 0.15, size * 0.65, size * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Right puff
-        ctx.beginPath();
-        ctx.ellipse(x + size * 0.75, y + size * 0.15, size * 0.65, size * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Top-left mini puff
-        ctx.beginPath();
-        ctx.ellipse(x - size * 0.38, y - size * 0.4, size * 0.5, size * 0.45, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Top-right mini puff
-        ctx.beginPath();
-        ctx.ellipse(x + size * 0.38, y - size * 0.3, size * 0.45, size * 0.4, 0, 0, Math.PI * 2);
-        ctx.fill();
-      };
-
-      /**
-       * Draw decorative fluffy clouds at fixed positions from CONFIG.CLOUDS.
-       * Requirements: 8.2
-       */
-      Renderer.prototype.drawClouds = function () {
-        var clouds = CONFIG.CLOUDS;
-        for (var i = 0; i < clouds.length; i++) {
-          var c = clouds[i];
-          this.drawCloud(c.x, c.y, c.size);
-        }
       };
 
       /**
@@ -1150,7 +1185,7 @@
        * @param {string}                  pointSrc   - Path to point sound asset.
        * @param {string}                  gameOverSrc - Path to game-over sound asset.
        */
-      function GameEngine(canvas, ghostImage, jumpSrc, pointSrc, gameOverSrc) {
+      function GameEngine(canvas, ghostImage, jumpSrc, pointSrc, gameOverSrc, serviceImages) {
         this._canvas   = canvas;
         this._ctx      = canvas.getContext('2d');
         this._lastTime = null;   // set when the loop first fires
@@ -1166,7 +1201,13 @@
           pointSrc    || 'assets/point.wav',
           gameOverSrc || 'assets/game_over.wav'
         );
-        this._renderer   = new Renderer(this._ctx, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT, ghostImage);
+        this._renderer   = new Renderer(
+          this._ctx,
+          CONFIG.CANVAS_WIDTH,
+          CONFIG.CANVAS_HEIGHT,
+          ghostImage,
+          serviceImages
+        );
 
         // Initial game state (Requirement 7.1)
         this._state = GameState.START;
@@ -1306,6 +1347,7 @@
 
         // 1c. Advance ground scroll in sync with the pipes
         this._renderer.groundScrollX += CONFIG.PIPES.SPEED * dt;
+        this._renderer.serviceTilesScrollX += CONFIG.PIPES.SPEED * 0.7 * dt;
 
         // 2. Pipe scrolling / spawning
         this._pipeSystem.update(dt);
@@ -1399,6 +1441,7 @@
         this._renderer.startScreenAlpha   = 0;     // start screen never shows again after first play
         this._renderer.startScreenFading  = false;
         this._renderer.groundScrollX      = 0;     // reset ground scroll
+        this._renderer.serviceTilesScrollX = 0;
         this._state = GameState.PLAYING;
       };
 
@@ -1485,9 +1528,28 @@
       }
 
       // ---------------------------------------------------------------
-      // Asset tracking: start the engine only when all 3 are ready.
+      // Asset tracking: start only after the game and service icon assets load.
       // ---------------------------------------------------------------
-      var TOTAL_ASSETS  = 3;
+      var SERVICE_ICON_PATHS = {
+        ec2: 'assets/aws-service-icons/ec2.png',
+        lambda: 'assets/aws-service-icons/lambda.png',
+        ecs: 'assets/aws-service-icons/ecs.png',
+        eks: 'assets/aws-service-icons/eks.png',
+        lightsail: 'assets/aws-service-icons/lightsail.png',
+        s3: 'assets/aws-service-icons/s3.png',
+        ebs: 'assets/aws-service-icons/ebs.png',
+        efs: 'assets/aws-service-icons/efs.png',
+        rds: 'assets/aws-service-icons/rds.png',
+        aurora: 'assets/aws-service-icons/aurora.png',
+        dynamodb: 'assets/aws-service-icons/dynamodb.png',
+        elasticache: 'assets/aws-service-icons/elasticache.png',
+        vpc: 'assets/aws-service-icons/vpc.png',
+        cloudfront: 'assets/aws-service-icons/cloudfront.png',
+        route53: 'assets/aws-service-icons/route53.png'
+      };
+      var serviceIconKeys = Object.keys(SERVICE_ICON_PATHS);
+      var serviceImages = {};
+      var TOTAL_ASSETS  = 3 + serviceIconKeys.length;
       var loadedCount   = 0;
       var errorOccurred = false;
 
@@ -1505,7 +1567,8 @@
             ghostImage,
             'assets/jump.wav',
             'assets/point.wav',
-            'assets/game_over.wav'
+            'assets/game_over.wav',
+            serviceImages
           );
           engine.start();
         }
@@ -1523,6 +1586,15 @@
       ghostImage.onload  = onAssetLoaded;
       ghostImage.onerror = onAssetError;
       ghostImage.src     = 'assets/ghosty.png';
+
+      for (var i = 0; i < serviceIconKeys.length; i++) {
+        var iconKey = serviceIconKeys[i];
+        var serviceImage = new Image();
+        serviceImage.onload = onAssetLoaded;
+        serviceImage.onerror = onAssetError;
+        serviceImage.src = SERVICE_ICON_PATHS[iconKey];
+        serviceImages[iconKey] = serviceImage;
+      }
 
       // ---------------------------------------------------------------
       // Jump sound (uses oncanplaythrough so we know it is decodeable)
